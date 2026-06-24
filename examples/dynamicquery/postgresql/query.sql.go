@@ -12,6 +12,75 @@ import (
 	"time"
 )
 
+const filterRecords = `-- name: FilterRecords :many
+SELECT id, name, age, created_at FROM records
+WHERE tenant_id = $1
+`
+
+type FilterRecordsRow struct {
+	ID        int64
+	Name      string
+	Age       int32
+	CreatedAt time.Time
+}
+
+type FilterRecordsOpts struct {
+	ids     []int64
+	orderBy []string
+}
+
+func (o FilterRecordsOpts) Ids(v []int64) FilterRecordsOpts {
+	o.ids = v
+	return o
+}
+func (q *Queries) FilterRecords(ctx context.Context, tenantID int64, opts FilterRecordsOpts) ([]FilterRecordsRow, error) {
+	query := filterRecords
+	queryParams := []interface{}{tenantID}
+	conds := make([]string, 0, 1)
+	n := 1
+	_ = n
+	if len(opts.ids) > 0 {
+		ph := make([]string, len(opts.ids))
+		for i, v := range opts.ids {
+			n++
+			ph[i] = fmt.Sprintf("$%d", n)
+			queryParams = append(queryParams, v)
+		}
+		conds = append(conds, "id IN ("+strings.Join(ph, ", ")+")")
+	}
+	if len(conds) > 0 {
+		query += " AND " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FilterRecordsRow
+	for rows.Next() {
+		var i FilterRecordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Age,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecords = `-- name: ListRecords :many
 SELECT id, name, age, created_at FROM records
 WHERE tenant_id = $1
@@ -86,6 +155,71 @@ func (q *Queries) ListRecords(ctx context.Context, tenantID int64, opts ListReco
 	var items []ListRecordsRow
 	for rows.Next() {
 		var i ListRecordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Age,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchRecords = `-- name: SearchRecords :many
+SELECT id, name, age, created_at FROM records
+WHERE tenant_id = $1
+`
+
+type SearchRecordsRow struct {
+	ID        int64
+	Name      string
+	Age       int32
+	CreatedAt time.Time
+}
+
+type SearchRecordsOpts struct {
+	pattern *string
+	orderBy []string
+}
+
+func (o SearchRecordsOpts) Pattern(v string) SearchRecordsOpts {
+	o.pattern = &v
+	return o
+}
+func (q *Queries) SearchRecords(ctx context.Context, tenantID int64, opts SearchRecordsOpts) ([]SearchRecordsRow, error) {
+	query := searchRecords
+	queryParams := []interface{}{tenantID}
+	conds := make([]string, 0, 1)
+	n := 1
+	_ = n
+	if opts.pattern != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("name LIKE $%d", n))
+		queryParams = append(queryParams, *opts.pattern)
+	}
+	if len(conds) > 0 {
+		query += " AND " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchRecordsRow
+	for rows.Next() {
+		var i SearchRecordsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,

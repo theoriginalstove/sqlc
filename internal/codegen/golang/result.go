@@ -285,17 +285,27 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 		if len(dynamicParams) > 0 || len(sortCols) > 0 {
 			dq := &DynamicQuery{StaticCount: len(staticParams)}
 			for _, p := range dynamicParams {
-				op, ok := dynamicSQLOperators[ops[p.Column.GetName()]]
-				if !ok {
-					return nil, fmt.Errorf("dynamic param %q: unsupported operator %q", p.Column.GetName(), ops[p.Column.GetName()])
+				isSlice := p.Column.GetIsSqlcSlice()
+				var sqlOp string
+				if !isSlice {
+					op, ok := dynamicSQLOperators[ops[p.Column.GetName()]]
+					if !ok {
+						return nil, fmt.Errorf("dynamic param %q: unsupported operator %q", p.Column.GetName(), ops[p.Column.GetName()])
+					}
+					sqlOp = op
 				}
 				field := StructName(p.Column.GetName(), options)
+				column := p.Column.GetName()
+				if p.Column.GetOriginalName() != "" {
+					column = p.Column.GetOriginalName()
+				}
 				dq.Opts = append(dq.Opts, DynamicPredicate{
 					FieldName: StructName(p.Column.GetName(), options),
 					VarName:   sdk.LowerTitle(field),
 					GoType:    qualifyType(goType(req, options, p.Column), models, qualifier),
-					Column:    p.Column.GetName(),
-					SQLOp:     op,
+					Column:    column,
+					SQLOp:     sqlOp,
+					IsSlice:   isSlice,
 				})
 			}
 			for _, col := range sortCols {

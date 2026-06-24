@@ -18,6 +18,7 @@ type DynamicPredicate struct {
 	GoType    string
 	Column    string
 	SQLOp     string
+	IsSlice   bool
 }
 
 type DynamicSortColumn struct {

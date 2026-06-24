@@ -23,13 +23,17 @@ type {{.Ret.Type}} struct { {{- range .Ret.Struct.Fields}}
 {{$q := .}}
 type {{$q.MethodName}}Opts struct {
 {{- range $q.Dynamic.Opts}}
+	{{- if .IsSlice}}
+	{{.VarName}} {{.GoType}}
+	{{- else}}
 	{{.VarName}} *{{.GoType}}
+	{{- end}}
 {{- end}}
 	orderBy []string
 }
 {{range $q.Dynamic.Opts}}
 func (o {{$q.MethodName}}Opts) {{.FieldName}}(v {{.GoType}}) {{$q.MethodName}}Opts {
-	o.{{.VarName}} = &v
+	o.{{.VarName}} = {{if .IsSlice}}v{{else}}&v{{end}}
 	return o
 }
 {{end -}}
@@ -60,11 +64,23 @@ func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.
 	n := {{$q.Dynamic.StaticCount}}
 	_ = n
 {{- range $q.Dynamic.Opts}}
+	{{- if .IsSlice}}
+	if len(opts.{{.VarName}}) > 0 {
+		ph := make([]string, len(opts.{{.VarName}}))
+		for i, v := range opts.{{.VarName}} {
+			n++
+			ph[i] = fmt.Sprintf("$%d", n)
+			queryParams = append(queryParams, v)
+		}
+		conds = append(conds, "{{.Column}} IN ("+strings.Join(ph, ", ")+")")
+	}
+	{{- else}}
 	if opts.{{.VarName}} != nil {
 		n++
 		conds = append(conds, fmt.Sprintf("{{.Column}} {{.SQLOp}} $%d", n))
 		queryParams = append(queryParams, *opts.{{.VarName}})
 	}
+	{{- end}}
 {{- end}}
 	if len(conds) > 0 {
 		query += " {{if gt $q.Dynamic.StaticCount 0}}AND{{else}}WHERE{{end}} " + strings.Join(conds, " AND ")
