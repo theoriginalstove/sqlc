@@ -29,7 +29,7 @@ type Metadata struct {
 	// Dynamic is set when the query is marked `:dynamic`.
 	Dynamic bool
 	// DynamicParams is the set of sqlc.arg names marked `@dynamic`
-	DynamicParams map[string]struct{}
+	DynamicParams map[string]string
 	// DynamicSort is the whitelist of columns allowed in a dynamic ORDR BY clause.
 	DynamicSort []string
 }
@@ -137,11 +137,11 @@ func ParseQueryNameAndType(t string, commentStyle CommentSyntax) (string, string
 
 // ParseCommentFlags processes the comments provided with queries to determine the metadata params, flags and rules to skip.
 // All flags in query comments are prefixed with `@`, e.g. @param, @@sqlc-vet-disable.
-func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, map[string]struct{}, map[string]struct{}, []string, error) {
+func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, map[string]struct{}, map[string]string, []string, error) {
 	params := make(map[string]string)
 	flags := make(map[string]bool)
 	ruleSkiplist := make(map[string]struct{})
-	dynamicParams := make(map[string]struct{})
+	dynamicParams := make(map[string]string)
 	dynamicSort := []string{}
 
 	for _, line := range comments {
@@ -179,8 +179,11 @@ func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, m
 			}
 		case constants.QueryFlagDynamic:
 			s.Scan()
-			if name := s.Text(); name != "" {
-				dynamicParams[name] = struct{}{}
+			name := s.Text()
+			s.Scan()
+			op := s.Text()
+			if name != "" {
+				dynamicParams[name] = op
 			}
 		case constants.QueryFlagDynamicSort:
 			for s.Scan() {
