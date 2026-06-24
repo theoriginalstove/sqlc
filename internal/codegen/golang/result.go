@@ -295,7 +295,6 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 					VarName:   sdk.LowerTitle(field),
 					GoType:    qualifyType(goType(req, options, p.Column), models, qualifier),
 					Column:    p.Column.GetName(),
-					Operator:  ops[p.Column.GetName()],
 					SQLOp:     op,
 				})
 			}

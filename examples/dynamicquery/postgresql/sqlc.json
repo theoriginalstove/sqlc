@@ -1,0 +1,12 @@
+{
+  "version": "1",
+  "packages": [
+    {
+      "engine": "postgresql",
+      "path": ".",
+      "name": "dynamicquery",
+      "schema": "schema.sql",
+      "queries": "query.sql"
+    }
+  ]
+}

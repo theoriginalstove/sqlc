@@ -17,7 +17,6 @@ type DynamicPredicate struct {
 	VarName   string
 	GoType    string
 	Column    string
-	Operator  string // eq, gt, lt, gte, lte, ne, like, in
 	SQLOp     string
 }
 
