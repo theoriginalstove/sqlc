@@ -152,10 +152,14 @@ func pluginQueries(r *compiler.Result) []*plugin.Query {
 				Name:    q.InsertIntoTable.Name,
 			}
 		}
+		text := q.SQL
+		if q.CodegenSQL != "" {
+			text = q.CodegenSQL
+		}
 		out = append(out, &plugin.Query{
 			Name:            q.Metadata.Name,
 			Cmd:             q.Metadata.Cmd,
-			Text:            q.SQL,
+			Text:            text,
 			Comments:        q.Metadata.Comments,
 			Columns:         columns,
 			Params:          params,

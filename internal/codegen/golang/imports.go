@@ -413,7 +413,20 @@ func (i *importer) queryImports(filename string) fileImports {
 		pkg[ImportSpec{Path: "github.com/lib/pq"}] = struct{}{}
 	}
 
-	if i.Options.WrapErrors {
+	hasDynamic, hasDynamicPredicate := false, false
+	for _, q := range gq {
+		if q.Dynamic != nil {
+			hasDynamic = true
+			if len(q.Dynamic.Opts) > 0 {
+				hasDynamicPredicate = true
+			}
+		}
+	}
+
+	if hasDynamic {
+		std["strings"] = struct{}{}
+	}
+	if hasDynamicPredicate || i.Options.WrapErrors {
 		std["fmt"] = struct{}{}
 	}
 

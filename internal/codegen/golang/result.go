@@ -201,7 +201,7 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 			constantName = sdk.LowerTitle(query.Name)
 		}
 
-		comments := query.Comments
+		ops, sortCols, comments := parseDynamicComments(query.Comments)
 		if options.EmitSqlAsComment {
 			if len(comments) == 0 {
 				comments = append(comments, query.Name)
@@ -231,7 +231,20 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 
 		qpl := int(*options.QueryParameterLimit)
 
-		if len(query.Params) == 1 && qpl != 0 {
+		staticParams := query.Params
+		var dynamicParams []*plugin.Parameter
+		if len(ops) > 0 {
+			staticParams = nil
+			for _, p := range query.Params {
+				if _, ok := ops[p.Column.GetName()]; ok {
+					dynamicParams = append(dynamicParams, p)
+				} else {
+					staticParams = append(staticParams, p)
+				}
+			}
+		}
+
+		if len(staticParams) == 1 && qpl != 0 {
 			p := query.Params[0]
 			gq.Arg = QueryValue{
 				Name:           escape(paramName(p)),
@@ -241,9 +254,9 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 				ModelQualifier: qualifier,
 				Column:         p.Column,
 			}
-		} else if len(query.Params) >= 1 {
+		} else if len(staticParams) >= 1 {
 			var cols []goColumn
-			for _, p := range query.Params {
+			for _, p := range staticParams {
 				cols = append(cols, goColumn{
 					id:     int(p.Number),
 					Column: p.Column,
@@ -264,15 +277,41 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 
 			// if query params is 2, and query params limit is 4 AND this is a copyfrom, we still want to emit the query's model
 			// otherwise we end up with a copyfrom using a struct without the struct definition
-			if len(query.Params) <= qpl && query.Cmd != ":copyfrom" {
+			if len(staticParams) <= qpl && query.Cmd != ":copyfrom" {
 				gq.Arg.Emit = false
 			}
+		}
+
+		if len(dynamicParams) > 0 || len(sortCols) > 0 {
+			dq := &DynamicQuery{StaticCount: len(staticParams)}
+			for _, p := range dynamicParams {
+				op, ok := dynamicSQLOperators[ops[p.Column.GetName()]]
+				if !ok {
+					return nil, fmt.Errorf("dynamic param %q: unsupported operator %q", p.Column.GetName(), ops[p.Column.GetName()])
+				}
+				field := StructName(p.Column.GetName(), options)
+				dq.Opts = append(dq.Opts, DynamicPredicate{
+					FieldName: StructName(p.Column.GetName(), options),
+					VarName:   sdk.LowerTitle(field),
+					GoType:    qualifyType(goType(req, options, p.Column), models, qualifier),
+					Column:    p.Column.GetName(),
+					Operator:  ops[p.Column.GetName()],
+					SQLOp:     op,
+				})
+			}
+			for _, col := range sortCols {
+				dq.SortColumns = append(dq.SortColumns, DynamicSortColumn{
+					ConstName: gq.MethodName + "OrderBy" + StructName(col, options),
+					Value:     col,
+				})
+			}
+			gq.Dynamic = dq
 		}
 
 		if len(query.Columns) == 1 && query.Columns[0].EmbedTable == nil {
 			c := query.Columns[0]
 			name := columnName(c, 0)
-			name = strings.Replace(name, "$", "_", -1)
+			name = strings.ReplaceAll(name, "$", "_")
 			retName := escape(name)
 			// For :one queries the scan destination lives in the same scope as
 			// the query parameters, so reusing a parameter's name would cause

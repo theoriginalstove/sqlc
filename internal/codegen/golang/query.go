@@ -266,7 +266,7 @@ func (v QueryValue) VariableForField(f Field) string {
 	return v.Name + "." + f.Name
 }
 
-// A struct used to generate methods and fields on the Queries struct
+// Query is a struct used to generate methods and fields on the Queries struct
 type Query struct {
 	Cmd          string
 	Comments     []string
@@ -277,6 +277,7 @@ type Query struct {
 	SourceName   string
 	Ret          QueryValue
 	Arg          QueryValue
+	Dynamic      *DynamicQuery
 	// Used for :copyfrom
 	Table *plugin.Identifier
 }

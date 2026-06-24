@@ -7,6 +7,8 @@ package querytest
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -15,12 +17,6 @@ SELECT id, name, age, created_at FROM records
 WHERE tenant_id = $1
 `
 
-type ListRecordsParams struct {
-	TenantID int64
-	Name     string
-	Age      int32
-}
-
 type ListRecordsRow struct {
 	ID        int64
 	Name      string
@@ -28,11 +24,61 @@ type ListRecordsRow struct {
 	CreatedAt time.Time
 }
 
-// @dynamic name eq
-// @dynamic age gt
-// @dynamic-sort name, age, created_at
-func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]ListRecordsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listRecords, arg.TenantID, arg.Name, arg.Age)
+type ListRecordsOpts struct {
+	name    *string
+	age     *int32
+	orderBy []string
+}
+
+func (o ListRecordsOpts) Name(v string) ListRecordsOpts {
+	o.name = &v
+	return o
+}
+
+func (o ListRecordsOpts) Age(v int32) ListRecordsOpts {
+	o.age = &v
+	return o
+}
+
+type ListRecordsOrderByColumn string
+
+const (
+	ListRecordsOrderByName      ListRecordsOrderByColumn = "name"
+	ListRecordsOrderByAge       ListRecordsOrderByColumn = "age"
+	ListRecordsOrderByCreatedAt ListRecordsOrderByColumn = "created_at"
+)
+
+func (o ListRecordsOpts) OrderBy(col ListRecordsOrderByColumn, desc bool) ListRecordsOpts {
+	dir := " ASC"
+	if desc {
+		dir = " DESC"
+	}
+	o.orderBy = append(o.orderBy, string(col)+dir)
+	return o
+}
+func (q *Queries) ListRecords(ctx context.Context, tenantID int64, opts ListRecordsOpts) ([]ListRecordsRow, error) {
+	query := listRecords
+	queryParams := []interface{}{tenantID}
+	conds := make([]string, 0, 2)
+	n := 1
+	_ = n
+	if opts.name != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("name = $%d", n))
+		queryParams = append(queryParams, *opts.name)
+	}
+	if opts.age != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("age > $%d", n))
+		queryParams = append(queryParams, *opts.age)
+	}
+	if len(conds) > 0 {
+		query += " AND " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}

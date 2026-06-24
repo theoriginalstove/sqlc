@@ -175,12 +175,15 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 
 	md.Comments = comments
 
+	codegenSQL, err := buildDynamicCodegenSQL(trimmed, anlys.Parameters, md)
+
 	return &Query{
 		RawStmt:         raw,
 		Metadata:        md,
 		Params:          anlys.Parameters,
 		Columns:         anlys.Columns,
 		SQL:             trimmed,
+		CodegenSQL:      codegenSQL,
 		InsertIntoTable: anlys.Table,
 	}, nil
 }
