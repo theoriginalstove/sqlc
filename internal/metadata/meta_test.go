@@ -5,7 +5,6 @@ import (
 )
 
 func TestParseQueryNameAndType(t *testing.T) {
-
 	for _, query := range []string{
 		`-- name: CreateFoo, :one`,
 		`-- name: 9Foo_, :one`,
@@ -19,7 +18,7 @@ func TestParseQueryNameAndType(t *testing.T) {
 		"-- name:CreateFoo",
 		`--name:CreateFoo :two`,
 	} {
-		if _, _, err := ParseQueryNameAndType(query, CommentSyntax{Dash: true}); err == nil {
+		if _, _, _, err := ParseQueryNameAndType(query, CommentSyntax{Dash: true}); err == nil {
 			t.Errorf("expected invalid metadata: %q", query)
 		}
 	}
@@ -29,7 +28,7 @@ func TestParseQueryNameAndType(t *testing.T) {
 		`-- name comment`,
 		`--name comment`,
 	} {
-		if _, _, err := ParseQueryNameAndType(query, CommentSyntax{Dash: true}); err != nil {
+		if _, _, _, err := ParseQueryNameAndType(query, CommentSyntax{Dash: true}); err != nil {
 			t.Errorf("expected valid comment: %q", query)
 		}
 	}
@@ -39,7 +38,7 @@ func TestParseQueryNameAndType(t *testing.T) {
 		`# name: CreateFoo :one`:     {Hash: true},
 		`/* name: CreateFoo :one */`: {SlashStar: true},
 	} {
-		queryName, queryCmd, err := ParseQueryNameAndType(query, cs)
+		queryName, queryCmd, dynamic, err := ParseQueryNameAndType(query, cs)
 		if err != nil {
 			t.Errorf("expected valid metadata: %q", query)
 		}
@@ -49,8 +48,10 @@ func TestParseQueryNameAndType(t *testing.T) {
 		if queryCmd != CmdOne {
 			t.Errorf("incorrect queryCmd parsed: (%q) %q", queryCmd, query)
 		}
+		if dynamic {
+			t.Errorf("incorrectly determined as dynimc query: (%v) %q", dynamic, query)
+		}
 	}
-
 }
 
 func TestParseQueryParams(t *testing.T) {
@@ -79,7 +80,7 @@ func TestParseQueryParams(t *testing.T) {
 			" @param @invalid UUID ",
 		},
 	} {
-		params, _, _, err := ParseCommentFlags(comments)
+		params, _, _, _, _, err := ParseCommentFlags(comments)
 		if err != nil {
 			t.Errorf("expected comments to parse, got err: %s", err)
 		}
@@ -125,7 +126,7 @@ func TestParseQueryFlags(t *testing.T) {
 			" @param @flag-bar UUID",
 		},
 	} {
-		_, flags, _, err := ParseCommentFlags(comments)
+		_, flags, _, _, _, err := ParseCommentFlags(comments)
 		if err != nil {
 			t.Errorf("expected comments to parse, got err: %s", err)
 		}
@@ -158,7 +159,7 @@ func TestParseQueryRuleSkiplist(t *testing.T) {
 			" @sqlc-vet-disable delete-without-where ",
 		},
 	} {
-		_, flags, ruleSkiplist, err := ParseCommentFlags(comments)
+		_, flags, ruleSkiplist, _, _, err := ParseCommentFlags(comments)
 		if err != nil {
 			t.Errorf("expected comments to parse, got err: %s", err)
 		}

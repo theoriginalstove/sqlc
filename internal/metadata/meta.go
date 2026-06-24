@@ -3,9 +3,10 @@ package metadata
 import (
 	"bufio"
 	"fmt"
-	"github.com/sqlc-dev/sqlc/internal/constants"
 	"strings"
 	"unicode"
+
+	"github.com/sqlc-dev/sqlc/internal/constants"
 
 	"github.com/sqlc-dev/sqlc/internal/source"
 )
@@ -24,6 +25,13 @@ type Metadata struct {
 	RuleSkiplist map[string]struct{}
 
 	Filename string
+
+	// Dynamic is set when the query is marked `:dynamic`.
+	Dynamic bool
+	// DynamicParams is the set of sqlc.arg names marked `@dynamic`
+	DynamicParams map[string]struct{}
+	// DynamicSort is the whitelist of columns allowed in a dynamic ORDR BY clause.
+	DynamicSort []string
 }
 
 const (
@@ -58,7 +66,7 @@ func validateQueryName(name string) error {
 	return nil
 }
 
-func ParseQueryNameAndType(t string, commentStyle CommentSyntax) (string, string, error) {
+func ParseQueryNameAndType(t string, commentStyle CommentSyntax) (string, string, bool, error) {
 	for line := range strings.SplitSeq(t, "\n") {
 		var prefix string
 		if strings.HasPrefix(line, "--") {
@@ -90,40 +98,51 @@ func ParseQueryNameAndType(t string, commentStyle CommentSyntax) (string, string
 			continue
 		}
 		if !strings.HasPrefix(rest, " name: ") {
-			return "", "", fmt.Errorf("invalid metadata: %s", line)
+			return "", "", false, fmt.Errorf("invalid metadata: %s", line)
 		}
 
 		part := strings.Split(strings.TrimSpace(line), " ")
 		if prefix == "/*" {
 			part = part[:len(part)-1] // removes the trailing "*/" element
 		}
-		if len(part) == 3 {
-			return "", "", fmt.Errorf("missing query type [':one', ':many', ':exec', ':execrows', ':execlastid', ':execresult', ':copyfrom', 'batchexec', 'batchmany', 'batchone']: %s", line)
+		if len(part) < 3 {
+			return "", "", false, fmt.Errorf("invalid query comment: %s", line)
 		}
-		if len(part) != 4 {
-			return "", "", fmt.Errorf("invalid query comment: %s", line)
+		if len(part) == 3 {
+			return "", "", false, fmt.Errorf("missing query type [':one', ':many', ':exec', ':execrows', ':execlastid', ':execresult', ':copyfrom', 'batchexec', 'batchmany', 'batchone']: %s", line)
 		}
 		queryName := part[2]
 		queryType := strings.TrimSpace(part[3])
 		switch queryType {
 		case CmdOne, CmdMany, CmdExec, CmdExecResult, CmdExecRows, CmdExecLastId, CmdCopyFrom, CmdBatchExec, CmdBatchMany, CmdBatchOne:
 		default:
-			return "", "", fmt.Errorf("invalid query type: %s", queryType)
+			return "", "", false, fmt.Errorf("invalid query type: %s", queryType)
 		}
 		if err := validateQueryName(queryName); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
-		return queryName, queryType, nil
+		var dynamic bool
+		for _, modifier := range part[4:] {
+			switch strings.TrimSpace(modifier) {
+			case ":dynamic":
+				dynamic = true
+			default:
+				return "", "", false, fmt.Errorf("invalid query modifier %q: %s", modifier, line)
+			}
+		}
+		return queryName, queryType, dynamic, nil
 	}
-	return "", "", nil
+	return "", "", false, nil
 }
 
 // ParseCommentFlags processes the comments provided with queries to determine the metadata params, flags and rules to skip.
 // All flags in query comments are prefixed with `@`, e.g. @param, @@sqlc-vet-disable.
-func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, map[string]struct{}, error) {
+func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, map[string]struct{}, map[string]struct{}, []string, error) {
 	params := make(map[string]string)
 	flags := make(map[string]bool)
 	ruleSkiplist := make(map[string]struct{})
+	dynamicParams := make(map[string]struct{})
+	dynamicSort := []string{}
 
 	for _, line := range comments {
 		s := bufio.NewScanner(strings.NewReader(line))
@@ -158,15 +177,27 @@ func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, m
 			for s.Scan() {
 				ruleSkiplist[s.Text()] = struct{}{}
 			}
+		case constants.QueryFlagDynamic:
+			s.Scan()
+			if name := s.Text(); name != "" {
+				dynamicParams[name] = struct{}{}
+			}
+		case constants.QueryFlagDynamicSort:
+			for s.Scan() {
+				col := strings.TrimSuffix(s.Text(), ",")
+				if col != "" {
+					dynamicSort = append(dynamicSort, col)
+				}
+			}
 
 		default:
 			flags[token] = true
 		}
 
 		if s.Err() != nil {
-			return params, flags, ruleSkiplist, s.Err()
+			return params, flags, ruleSkiplist, dynamicParams, dynamicSort, s.Err()
 		}
 	}
 
-	return params, flags, ruleSkiplist, nil
+	return params, flags, ruleSkiplist, dynamicParams, dynamicSort, nil
 }

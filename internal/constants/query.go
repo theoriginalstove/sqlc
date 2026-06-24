@@ -4,6 +4,8 @@ package constants
 const (
 	QueryFlagParam          = "@param"
 	QueryFlagSqlcVetDisable = "@sqlc-vet-disable"
+	QueryFlagDynamic        = "@dynamic"
+	QueryFlagDynamicSort    = "@dynamic-sort"
 )
 
 // Rules
