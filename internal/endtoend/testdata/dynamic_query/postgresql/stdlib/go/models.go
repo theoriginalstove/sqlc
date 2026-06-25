@@ -13,5 +13,6 @@ type Record struct {
 	TenantID  int64
 	Name      string
 	Age       int32
+	Status    string
 	CreatedAt time.Time
 }

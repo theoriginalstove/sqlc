@@ -12,6 +12,110 @@ import (
 	"time"
 )
 
+const listActiveRecords = `-- name: ListActiveRecords :many
+SELECT id, name, age, status, created_at FROM records
+WHERE tenant_id = $1
+  AND status = $2
+`
+
+type ListActiveRecordsParams struct {
+	TenantID int64
+	Status   string
+}
+
+type ListActiveRecordsRow struct {
+	ID        int64
+	Name      string
+	Age       int32
+	Status    string
+	CreatedAt time.Time
+}
+
+type ListActiveRecordsOpts struct {
+	name    *string
+	age     *int32
+	orderBy []string
+}
+
+func (o ListActiveRecordsOpts) Name(v string) ListActiveRecordsOpts {
+	o.name = &v
+	return o
+}
+
+func (o ListActiveRecordsOpts) Age(v int32) ListActiveRecordsOpts {
+	o.age = &v
+	return o
+}
+
+type ListActiveRecordsOrderByColumn string
+
+const (
+	ListActiveRecordsOrderByName      ListActiveRecordsOrderByColumn = "name"
+	ListActiveRecordsOrderByAge       ListActiveRecordsOrderByColumn = "age"
+	ListActiveRecordsOrderByCreatedAt ListActiveRecordsOrderByColumn = "created_at"
+)
+
+func (o ListActiveRecordsOpts) OrderBy(col ListActiveRecordsOrderByColumn, desc bool) ListActiveRecordsOpts {
+	dir := " ASC"
+	if desc {
+		dir = " DESC"
+	}
+	o.orderBy = append(o.orderBy, string(col)+dir)
+	return o
+}
+
+// ListActiveRecords returns a tenant's records for a given status, optionally
+// narrowed by an exact name and a minimum age, and optionally ordered.
+func (q *Queries) ListActiveRecords(ctx context.Context, arg ListActiveRecordsParams, opts ListActiveRecordsOpts) ([]ListActiveRecordsRow, error) {
+	query := listActiveRecords
+	queryParams := []interface{}{arg.TenantID, arg.Status}
+	conds := make([]string, 0, 2)
+	n := 2
+	_ = n
+	if opts.name != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("name = $%d", n))
+		queryParams = append(queryParams, *opts.name)
+	}
+	if opts.age != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("age >= $%d", n))
+		queryParams = append(queryParams, *opts.age)
+	}
+	if len(conds) > 0 {
+		query += " AND " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveRecordsRow
+	for rows.Next() {
+		var i ListActiveRecordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Age,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecords = `-- name: ListRecords :many
 SELECT id, name, age, created_at FROM records
 WHERE tenant_id = $1

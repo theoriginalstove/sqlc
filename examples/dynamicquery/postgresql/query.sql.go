@@ -132,6 +132,9 @@ func (o ListActiveRecordsOpts) OrderBy(col ListActiveRecordsOrderByColumn, desc 
 	o.orderBy = append(o.orderBy, string(col)+dir)
 	return o
 }
+
+// ListActiveRecords returns a tenant's records for a given status, optionally
+// narrowed by an exact name and a minimum age, and optionally ordered.
 func (q *Queries) ListActiveRecords(ctx context.Context, arg ListActiveRecordsParams, opts ListActiveRecordsOpts) ([]ListActiveRecordsRow, error) {
 	query := listActiveRecords
 	queryParams := []interface{}{arg.TenantID, arg.Status}

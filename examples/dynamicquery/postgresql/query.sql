@@ -20,6 +20,8 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND id IN (sqlc.slice(ids));
 
 -- name: ListActiveRecords :many :dynamic
+-- ListActiveRecords returns a tenant's records for a given status, optionally
+-- narrowed by an exact name and a minimum age, and optionally ordered.
 -- @dynamic name eq
 -- @dynamic age gte
 -- @dynamic-sort name, age, created_at
