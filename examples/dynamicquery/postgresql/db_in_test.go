@@ -30,7 +30,7 @@ func TestFilterRecordsDynamic(t *testing.T) {
 	for _, n := range []string{"alice", "bob", "carol"} {
 		var id int64
 		if err := db.QueryRowContext(ctx,
-			"INSERT INTO records (tenant_id, name, age) VALUES (1, $1, 30) RETURNING id",
+			"INSERT INTO records (tenant_id, name, age, status) VALUES (1, $1, 30, 'active') RETURNING id",
 			n).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
