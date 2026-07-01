@@ -5,6 +5,7 @@ package dynamicquery
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -303,6 +304,150 @@ func TestFilterRecordsDynamic(t *testing.T) {
 		}
 		if len(got) != 3 {
 			t.Fatalf("want all 3 rows, got %d", len(got))
+		}
+	})
+}
+
+func TestGetRecordDynamic(t *testing.T) {
+	ctx := context.Background()
+	uri := local.PostgreSQL(t, []string{"schema.sql"})
+
+	db, err := sql.Open("pgx", uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	seed := []struct {
+		tenant int64
+		name   string
+		age    int32
+	}{
+		{1, "alice", 30},
+		{1, "bob", 20},
+		{1, "carol", 40},
+		{2, "dave", 99},
+	}
+	for _, s := range seed {
+		if _, err := db.ExecContext(ctx,
+			"INSERT INTO records (tenant_id, name, age, status) VALUES ($1, $2, $3, 'active')",
+			s.tenant, s.name, s.age); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	q := New(db)
+
+	t.Run("name_eq_returns_single_row", func(t *testing.T) {
+		got, err := q.GetRecord(ctx, 1, GetRecordOpts{}.Name("alice"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Name != "alice" || got.Age != 30 {
+			t.Fatalf("want alice/30, got %s/%d", got.Name, got.Age)
+		}
+	})
+
+	t.Run("combined_predicates", func(t *testing.T) {
+		got, err := q.GetRecord(ctx, 1, GetRecordOpts{}.Name("carol").Age(40))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Name != "carol" {
+			t.Fatalf("want carol, got %s", got.Name)
+		}
+	})
+
+	t.Run("static_tenant_filter", func(t *testing.T) {
+		got, err := q.GetRecord(ctx, 2, GetRecordOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Name != "dave" {
+			t.Fatalf("want dave, got %s", got.Name)
+		}
+	})
+
+	t.Run("no_match_returns_ErrNoRows", func(t *testing.T) {
+		_, err := q.GetRecord(ctx, 1, GetRecordOpts{}.Name("nobody"))
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("want sql.ErrNoRows, got %v", err)
+		}
+	})
+
+	t.Run("order_by_makes_first_row_deterministic", func(t *testing.T) {
+		// Multiple tenant-1 rows match age >= 20; ORDER BY age DESC makes the
+		// oldest (carol, 40) the deterministic first row QueryRow returns.
+		got, err := q.GetRecord(ctx, 1, GetRecordOpts{}.Age(20).OrderBy(GetRecordOrderByAge, true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Name != "carol" {
+			t.Fatalf("want carol (oldest), got %s", got.Name)
+		}
+
+		// ASC flips it to the youngest matching row (bob, 20).
+		got, err = q.GetRecord(ctx, 1, GetRecordOpts{}.Age(20).OrderBy(GetRecordOrderByAge, false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Name != "bob" {
+			t.Fatalf("want bob (youngest), got %s", got.Name)
+		}
+	})
+}
+
+func TestGetRecordInDynamic(t *testing.T) {
+	ctx := context.Background()
+	uri := local.PostgreSQL(t, []string{"schema.sql"})
+
+	db, err := sql.Open("pgx", uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ids := make(map[string]int64)
+	for _, n := range []string{"alice", "bob", "carol"} {
+		var id int64
+		if err := db.QueryRowContext(ctx,
+			"INSERT INTO records (tenant_id, name, age, status) VALUES (1, $1, 30, 'active') RETURNING id",
+			n).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids[n] = id
+	}
+
+	q := New(db)
+
+	t.Run("in_on_single_row_returns_lowest_id", func(t *testing.T) {
+		// slice expansion on the :one path; ORDER BY id ASC -> smallest id first.
+		got, err := q.GetRecordIn(ctx, 1, GetRecordInOpts{}.
+			Ids([]int64{ids["carol"], ids["alice"]}).
+			OrderBy(GetRecordInOrderByID, false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ID != ids["alice"] {
+			t.Fatalf("want alice's id %d (lowest), got %d", ids["alice"], got.ID)
+		}
+	})
+
+	t.Run("empty_slice_applies_no_IN_filter", func(t *testing.T) {
+		// No ids -> no IN predicate; QueryRow yields the first tenant row.
+		got, err := q.GetRecordIn(ctx, 1, GetRecordInOpts{}.OrderBy(GetRecordInOrderByID, false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ID != ids["alice"] {
+			t.Fatalf("want first tenant row (alice, id %d), got %d", ids["alice"], got.ID)
+		}
+	})
+
+	t.Run("no_match_returns_ErrNoRows", func(t *testing.T) {
+		_, err := q.GetRecordIn(ctx, 1, GetRecordInOpts{}.Ids([]int64{-1}))
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("want sql.ErrNoRows, got %v", err)
 		}
 	})
 }

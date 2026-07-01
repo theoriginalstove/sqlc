@@ -3,13 +3,14 @@
 //   sqlc v1.31.1
 // source: query.sql
 
-package dynamicquery
+package dynamicquerypgx
 
 import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const filterRecords = `-- name: FilterRecords :many
@@ -21,7 +22,7 @@ type FilterRecordsRow struct {
 	ID        int64
 	Name      string
 	Age       int32
-	CreatedAt time.Time
+	CreatedAt pgtype.Timestamptz
 }
 
 type FilterRecordsOpts struct {
@@ -33,6 +34,7 @@ func (o FilterRecordsOpts) Ids(v []int64) FilterRecordsOpts {
 	o.ids = v
 	return o
 }
+
 func (q *Queries) FilterRecords(ctx context.Context, tenantID int64, opts FilterRecordsOpts) ([]FilterRecordsRow, error) {
 	query := filterRecords
 	queryParams := []interface{}{tenantID}
@@ -54,7 +56,7 @@ func (q *Queries) FilterRecords(ctx context.Context, tenantID int64, opts Filter
 	if len(opts.orderBy) > 0 {
 		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
 	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.Query(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -72,9 +74,6 @@ func (q *Queries) FilterRecords(ctx context.Context, tenantID int64, opts Filter
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -90,7 +89,7 @@ type GetRecordRow struct {
 	ID        int64
 	Name      string
 	Age       int32
-	CreatedAt time.Time
+	CreatedAt pgtype.Timestamptz
 }
 
 type GetRecordOpts struct {
@@ -151,7 +150,7 @@ func (q *Queries) GetRecord(ctx context.Context, tenantID int64, opts GetRecordO
 	if len(opts.orderBy) > 0 {
 		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
 	}
-	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	row := q.db.QueryRow(ctx, query, queryParams...)
 	var i GetRecordRow
 	err := row.Scan(
 		&i.ID,
@@ -171,7 +170,7 @@ type GetRecordInRow struct {
 	ID        int64
 	Name      string
 	Age       int32
-	CreatedAt time.Time
+	CreatedAt pgtype.Timestamptz
 }
 
 type GetRecordInOpts struct {
@@ -223,7 +222,7 @@ func (q *Queries) GetRecordIn(ctx context.Context, tenantID int64, opts GetRecor
 	if len(opts.orderBy) > 0 {
 		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
 	}
-	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	row := q.db.QueryRow(ctx, query, queryParams...)
 	var i GetRecordInRow
 	err := row.Scan(
 		&i.ID,
@@ -250,7 +249,7 @@ type ListActiveRecordsRow struct {
 	Name      string
 	Age       int32
 	Status    string
-	CreatedAt time.Time
+	CreatedAt pgtype.Timestamptz
 }
 
 type ListActiveRecordsOpts struct {
@@ -310,7 +309,7 @@ func (q *Queries) ListActiveRecords(ctx context.Context, arg ListActiveRecordsPa
 	if len(opts.orderBy) > 0 {
 		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
 	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.Query(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -329,9 +328,6 @@ func (q *Queries) ListActiveRecords(ctx context.Context, arg ListActiveRecordsPa
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -347,7 +343,7 @@ type ListRecordsRow struct {
 	ID        int64
 	Name      string
 	Age       int32
-	CreatedAt time.Time
+	CreatedAt pgtype.Timestamptz
 }
 
 type ListRecordsOpts struct {
@@ -382,6 +378,7 @@ func (o ListRecordsOpts) OrderBy(col ListRecordsOrderByColumn, desc bool) ListRe
 	o.orderBy = append(o.orderBy, string(col)+dir)
 	return o
 }
+
 func (q *Queries) ListRecords(ctx context.Context, tenantID int64, opts ListRecordsOpts) ([]ListRecordsRow, error) {
 	query := listRecords
 	queryParams := []interface{}{tenantID}
@@ -404,7 +401,7 @@ func (q *Queries) ListRecords(ctx context.Context, tenantID int64, opts ListReco
 	if len(opts.orderBy) > 0 {
 		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
 	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.Query(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -422,9 +419,6 @@ func (q *Queries) ListRecords(ctx context.Context, tenantID int64, opts ListReco
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -440,7 +434,7 @@ type SearchRecordsRow struct {
 	ID        int64
 	Name      string
 	Age       int32
-	CreatedAt time.Time
+	CreatedAt pgtype.Timestamptz
 }
 
 type SearchRecordsOpts struct {
@@ -452,6 +446,7 @@ func (o SearchRecordsOpts) Pattern(v string) SearchRecordsOpts {
 	o.pattern = &v
 	return o
 }
+
 func (q *Queries) SearchRecords(ctx context.Context, tenantID int64, opts SearchRecordsOpts) ([]SearchRecordsRow, error) {
 	query := searchRecords
 	queryParams := []interface{}{tenantID}
@@ -469,7 +464,7 @@ func (q *Queries) SearchRecords(ctx context.Context, tenantID int64, opts Search
 	if len(opts.orderBy) > 0 {
 		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
 	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.Query(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -486,9 +481,6 @@ func (q *Queries) SearchRecords(ctx context.Context, tenantID int64, opts Search
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
