@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sqlc-dev/sqlc/internal/config"
 	"github.com/sqlc-dev/sqlc/internal/debug"
 	"github.com/sqlc-dev/sqlc/internal/metadata"
 	"github.com/sqlc-dev/sqlc/internal/opts"
@@ -194,7 +195,11 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 
 	md.Comments = comments
 
-	codegenSQL, err := buildDynamicCodegenSQL(trimmed, anlys.Parameters, md)
+	dollar := c.conf.Engine == config.EnginePostgreSQL
+	codegenSQL, err := buildDynamicCodegenSQL(trimmed, anlys.Parameters, md, dollar)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Query{
 		RawStmt:         raw,

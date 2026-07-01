@@ -15,3 +15,10 @@ sql:
       package: dynamicquerypgx
       sql_package: pgx/v5
       out: pgx
+- engine: sqlite
+  schema: sqlite/schema.sql
+  queries: sqlite/query.sql
+  gen:
+    go:
+      package: dynamicquerysqlite
+      out: sqlite

@@ -7,10 +7,11 @@ import (
 )
 
 type DynamicQuery struct {
-	StaticCount int
-	Opts        []DynamicPredicate
-	Steps       []DynamicStep
-	SortColumns []DynamicSortColumn
+	StaticCount  int
+	QuestionMark bool
+	Opts         []DynamicPredicate
+	Steps        []DynamicStep
+	SortColumns  []DynamicSortColumn
 }
 
 type DynamicPredicate struct {

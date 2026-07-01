@@ -79,16 +79,24 @@ func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.
 	if len(opts.{{.Predicate.VarName}}) > 0 {
 		ph := make([]string, len(opts.{{.Predicate.VarName}}))
 		for i, v := range opts.{{.Predicate.VarName}} {
+			{{- if $q.Dynamic.QuestionMark}}
+			ph[i] = "?"
+			{{- else}}
 			n++
 			ph[i] = fmt.Sprintf("$%d", n)
+			{{- end}}
 			queryParams = append(queryParams, v)
 		}
 		{{.Target}} = append({{.Target}}, "{{.Predicate.Column}} IN ("+strings.Join(ph, ", ")+")")
 	}
 	{{- else}}
 	if opts.{{.Predicate.VarName}} != nil {
+		{{- if $q.Dynamic.QuestionMark}}
+		{{.Target}} = append({{.Target}}, "{{.Predicate.Column}} {{.Predicate.SQLOp}} ?")
+		{{- else}}
 		n++
 		{{.Target}} = append({{.Target}}, fmt.Sprintf("{{.Predicate.Column}} {{.Predicate.SQLOp}} $%d", n))
+		{{- end}}
 		queryParams = append(queryParams, *opts.{{.Predicate.VarName}})
 	}
 	{{- end}}

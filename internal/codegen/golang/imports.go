@@ -417,7 +417,7 @@ func (i *importer) queryImports(filename string) fileImports {
 	for _, q := range gq {
 		if q.Dynamic != nil {
 			hasDynamic = true
-			if len(q.Dynamic.Opts) > 0 {
+			if len(q.Dynamic.Opts) > 0 && !q.Dynamic.QuestionMark {
 				hasDynamicPredicate = true
 			}
 		}

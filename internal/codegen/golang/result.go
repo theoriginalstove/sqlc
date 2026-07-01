@@ -279,7 +279,10 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 		}
 
 		if len(dynamicParams) > 0 || len(query.GetDynamicOrderBy()) > 0 {
-			dq := &DynamicQuery{StaticCount: len(staticParams)}
+			dq := &DynamicQuery{
+				StaticCount:  len(staticParams),
+				QuestionMark: req.Settings.GetEngine() == "mysql" || req.Settings.GetEngine() == "sqlite",
+			}
 			preds := make(map[string]DynamicPredicate, len(dynamicParams))
 			for _, p := range dynamicParams {
 				isSlice := p.Column.GetIsSqlcSlice()

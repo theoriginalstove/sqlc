@@ -71,6 +71,7 @@ func TestDynamicOperator(t *testing.T) {
 		{"gte from op token", opExpr(">="), ">=", true},
 		{"tilde like from op token", opExpr("~~"), "LIKE", true},
 		{"unknown op token", opExpr("&&"), "", false},
+		{"op token with unset kind (sqlite/mysql)", &ast.A_Expr{Name: &ast.List{Items: []ast.Node{&ast.String{Str: "="}}}}, "=", true},
 		// kinds we don't emit as a simple binary predicate
 		{"between unsupported", &ast.A_Expr{Kind: ast.A_Expr_Kind_BETWEEN}, "", false},
 		{"in unsupported (handled via slice)", &ast.A_Expr{Kind: ast.A_Expr_Kind_IN}, "", false},
@@ -94,12 +95,13 @@ func param(number int, name string) Parameter {
 
 func TestBuildDynamicCodegenSQL(t *testing.T) {
 	tests := []struct {
-		name    string
-		sql     string
-		params  []Parameter
-		md      metadata.Metadata
-		want    string
-		wantErr bool
+		name         string
+		sql          string
+		params       []Parameter
+		md           metadata.Metadata
+		questionMark bool // ? placeholders (MySQL/SQLite) instead of $N
+		want         string
+		wantErr      bool
 	}{
 		{
 			name: "mixed static and dynamic suffix",
@@ -197,11 +199,56 @@ func TestBuildDynamicCodegenSQL(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "mixed static and dynamic suffix question marks",
+			sql: "SELECT id, name, age FROM records\n" +
+				"WHERE tenant_id = ?\n" +
+				"  AND name = ?\n" +
+				"  AND age > ?",
+			params:       []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "age")},
+			md:           metadata.Metadata{Dynamic: true, DynamicParams: map[string]string{"name": "eq", "age": "gt"}},
+			questionMark: true,
+			want: "SELECT id, name, age FROM records\n" +
+				"WHERE tenant_id = ?",
+		},
+		{
+			name: "dynamic OR group suffix question marks",
+			sql: "SELECT id, name, status FROM records\n" +
+				"WHERE tenant_id = ?\n" +
+				"  AND (name = ? OR status = ?)",
+			params:       []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "status")},
+			md:           metadata.Metadata{Dynamic: true, DynamicParams: map[string]string{"name": "", "status": ""}},
+			questionMark: true,
+			want: "SELECT id, name, status FROM records\n" +
+				"WHERE tenant_id = ?",
+		},
+		{
+			name: "dynamic NOT group suffix question marks",
+			sql: "SELECT id, name, status FROM records\n" +
+				"WHERE tenant_id = ?\n" +
+				"  AND NOT (name = ? OR status = ?)",
+			params:       []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "status")},
+			md:           metadata.Metadata{Dynamic: true, DynamicParams: map[string]string{"name": "", "status": ""}},
+			questionMark: true,
+			want: "SELECT id, name, status FROM records\n" +
+				"WHERE tenant_id = ?",
+		},
+		{
+			name: "IN slice suffix question marks",
+			sql: "SELECT id, name FROM records\n" +
+				"WHERE tenant_id = ?\n" +
+				"  AND id IN (?)",
+			params:       []Parameter{param(1, "tenant_id"), param(2, "ids")},
+			md:           metadata.Metadata{Dynamic: true, DynamicParams: map[string]string{"ids": ""}},
+			questionMark: true,
+			want: "SELECT id, name FROM records\n" +
+				"WHERE tenant_id = ?",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildDynamicCodegenSQL(tt.sql, tt.params, tt.md)
+			got, err := buildDynamicCodegenSQL(tt.sql, tt.params, tt.md, !tt.questionMark)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got none (result %q)", got)
@@ -216,6 +263,40 @@ func TestBuildDynamicCodegenSQL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNthQuestionMark(t *testing.T) {
+	t.Run("counts unquoted placeholders in order", func(t *testing.T) {
+		sql := "a = ? AND b = ? AND c = ?"
+		for n, want := range map[int]int{1: 4, 2: 14, 3: 24} {
+			if got := nthQuestionMark(sql, n); got != want {
+				t.Errorf("nthQuestionMark(_, %d) = %d, want %d", n, got, want)
+			}
+		}
+	})
+
+	t.Run("skips a placeholder inside a string literal", func(t *testing.T) {
+		sql := "label = 'huh?' AND name = ?"
+		if got, want := nthQuestionMark(sql, 1), strings.LastIndexByte(sql, '?'); got != want {
+			t.Fatalf("got %d, want the real param at %d", got, want)
+		}
+	})
+
+	t.Run("handles an escaped quote inside a literal", func(t *testing.T) {
+		sql := "note = 'it''s ok?' AND x = ?"
+		if got, want := nthQuestionMark(sql, 1), strings.LastIndexByte(sql, '?'); got != want {
+			t.Fatalf("got %d, want the real param at %d", got, want)
+		}
+	})
+
+	t.Run("returns -1 when there are too few", func(t *testing.T) {
+		if got := nthQuestionMark("a = ? AND b = ?", 3); got != -1 {
+			t.Fatalf("got %d, want -1", got)
+		}
+		if got := nthQuestionMark("a = 1", 1); got != -1 {
+			t.Fatalf("got %d, want -1", got)
+		}
+	})
 }
 
 func cmpLeaf(col string, paramNum int) *ast.A_Expr {
@@ -285,6 +366,27 @@ func TestBuildDynamicTree(t *testing.T) {
 			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "age")},
 			md:     dyn("name", "age"),
 			want:   groupNode("AND", leafNode("name"), leafNode("age")),
+		},
+		{
+			name: "left-nested AND chain is flattened",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				boolExpr(ast.BoolExprTypeAnd, cmpLeaf("tenant_id", 1), cmpLeaf("name", 2)),
+				cmpLeaf("age", 3)),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "age")},
+			md:     dyn("name", "age"),
+			want:   groupNode("AND", leafNode("name"), leafNode("age")),
+		},
+		{
+			name: "left-nested OR chain is flattened",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1),
+				boolExpr(ast.BoolExprTypeOr,
+					boolExpr(ast.BoolExprTypeOr, cmpLeaf("name", 2), cmpLeaf("email", 3)),
+					cmpLeaf("phone", 4))),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "email"), param(4, "phone")},
+			md:     dyn("name", "email", "phone"),
+			want: groupNode("AND",
+				groupNode("OR", leafNode("name"), leafNode("email"), leafNode("phone"))),
 		},
 		{
 			name: "IN slice predicate is a dynamic leaf",

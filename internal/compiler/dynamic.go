@@ -23,10 +23,8 @@ func dynamicOperator(n *ast.A_Expr) (string, bool) {
 		return "IS DISTINCT FROM", true
 	case ast.A_Expr_Kind_NOT_DISTINCT:
 		return "IS NOT DISTINCT FROM", true
-	case ast.A_Expr_Kind_OP:
-		return normalizeDynamicOperator(astutils.Join(n.Name, "."))
 	default:
-		return "", false
+		return normalizeDynamicOperator(astutils.Join(n.Name, "."))
 	}
 }
 
@@ -49,7 +47,7 @@ func normalizeDynamicOperator(op string) (string, bool) {
 	}
 }
 
-func buildDynamicCodegenSQL(sql string, params []Parameter, md metadata.Metadata) (string, error) {
+func buildDynamicCodegenSQL(sql string, params []Parameter, md metadata.Metadata, dollar bool) (string, error) {
 	if !md.Dynamic || len(md.DynamicParams) == 0 {
 		return "", nil
 	}
@@ -74,7 +72,12 @@ func buildDynamicCodegenSQL(sql string, params []Parameter, md metadata.Metadata
 	}
 
 	firstDyn := staticCount + 1
-	idx := placeholderIndex(sql, firstDyn)
+	var idx int
+	if dollar {
+		idx = placeholderIndex(sql, firstDyn)
+	} else {
+		idx = nthQuestionMark(sql, firstDyn)
+	}
 	if idx < 0 {
 		return "", fmt.Errorf("dynamic: couldn't locaTe placeholder $%d", firstDyn)
 	}
@@ -104,6 +107,29 @@ func placeholderIndex(sql string, n int) int {
 		}
 		from = end
 	}
+}
+
+func nthQuestionMark(sql string, n int) int {
+	inStr := false
+	count := 0
+	for i := 0; i < len(sql); i++ {
+		switch sql[i] {
+		case '\'':
+			if inStr && i+1 < len(sql) && sql[i+1] == '\'' {
+				i++ // escaped '' inside a string literal
+				continue
+			}
+			inStr = !inStr
+		case '?':
+			if !inStr {
+				count++
+				if count == n {
+					return i
+				}
+			}
+		}
+	}
+	return -1
 }
 
 func lastKeyword(s, kw string) int {
@@ -154,10 +180,7 @@ func buildDynamicTree(where ast.Node, params []Parameter, md metadata.Metadata) 
 		}
 	}
 
-	terms := []ast.Node{where}
-	if boolExpr, ok := where.(*ast.BoolExpr); ok && boolExpr.Boolop == ast.BoolExprTypeAnd {
-		terms = boolExpr.Args.Items
-	}
+	terms := flattenBool(where, ast.BoolExprTypeAnd)
 
 	root := &DynamicNode{Connector: "AND"}
 	for _, term := range terms {
@@ -192,7 +215,7 @@ func classifyDynamic(n ast.Node, numName map[int]string, dynNum map[int]bool) (*
 			}
 			var children []*DynamicNode
 			var anyStatic, anyDynamic bool
-			for _, arg := range boolExpr.Args.Items {
+			for _, arg := range flattenBool(boolExpr, boolExpr.Boolop) {
 				child, isDyn, err := classifyDynamic(arg, numName, dynNum)
 				if err != nil {
 					return nil, false, err
@@ -238,4 +261,16 @@ func leafParamNumber(n ast.Node) (int, bool) {
 		return 0, false
 	}
 	return pr.Number, true
+}
+
+func flattenBool(n ast.Node, op ast.BoolExprType) []ast.Node {
+	boolExpr, ok := n.(*ast.BoolExpr)
+	if !ok || boolExpr.Boolop != op {
+		return []ast.Node{n}
+	}
+	var out []ast.Node
+	for _, arg := range boolExpr.Args.Items {
+		out = append(out, flattenBool(arg, op)...)
+	}
+	return out
 }
