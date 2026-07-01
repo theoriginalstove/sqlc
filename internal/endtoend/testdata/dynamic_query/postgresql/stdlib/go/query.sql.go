@@ -12,6 +12,69 @@ import (
 	"time"
 )
 
+const getRecord = `-- name: GetRecord :one
+SELECT id, name, age, created_at FROM records
+WHERE tenant_id = $1
+`
+
+type GetRecordRow struct {
+	ID        int64
+	Name      string
+	Age       int32
+	CreatedAt time.Time
+}
+
+type GetRecordOpts struct {
+	name    *string
+	age     *int32
+	orderBy []string
+}
+
+func (o GetRecordOpts) Name(v string) GetRecordOpts {
+	o.name = &v
+	return o
+}
+
+func (o GetRecordOpts) Age(v int32) GetRecordOpts {
+	o.age = &v
+	return o
+}
+
+// GetRecord returns a single tenant record, optionally narrowed by an exact
+// name and a minimum age. QueryRow yields the first matching row.
+func (q *Queries) GetRecord(ctx context.Context, tenantID int64, opts GetRecordOpts) (GetRecordRow, error) {
+	query := getRecord
+	queryParams := []interface{}{tenantID}
+	conds := make([]string, 0, 2)
+	n := 1
+	_ = n
+	if opts.name != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("name = $%d", n))
+		queryParams = append(queryParams, *opts.name)
+	}
+	if opts.age != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("age >= $%d", n))
+		queryParams = append(queryParams, *opts.age)
+	}
+	if len(conds) > 0 {
+		query += " AND " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var i GetRecordRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Age,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listActiveRecords = `-- name: ListActiveRecords :many
 SELECT id, name, age, status, created_at FROM records
 WHERE tenant_id = $1
