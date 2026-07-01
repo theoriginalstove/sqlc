@@ -46,13 +46,14 @@ type Column struct {
 
 type Query struct {
 	// CodegenSQL is the stripped base query emitted as the Go const for
-	// :dynamic queries (where/order by suffixes removed). This should be
+	// :dynamicmany and dynamicone queries (where/order by suffixes removed). This should be
 	// empty for normal queries.
-	CodegenSQL string
-	SQL        string
-	Metadata   metadata.Metadata
-	Columns    []*Column
-	Params     []Parameter
+	CodegenSQL   string
+	DynamicWhere *DynamicNode
+	SQL          string
+	Metadata     metadata.Metadata
+	Columns      []*Column
+	Params       []Parameter
 
 	// Needed for CopyFrom
 	InsertIntoTable *ast.TableName

@@ -166,6 +166,17 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 			}
 		}
 	}
+	var dynamicWhere *DynamicNode
+	if md.Dynamic {
+		sel, ok := raw.Stmt.(*ast.SelectStmt)
+		if !ok {
+			return nil, fmt.Errorf("dynamic query %q must be a SELECT", name)
+		}
+		dynamicWhere, err = buildDynamicTree(sel.WhereClause, anlys.Parameters, md)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	expanded := anlys.Query
 
@@ -192,6 +203,7 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		Columns:         anlys.Columns,
 		SQL:             trimmed,
 		CodegenSQL:      codegenSQL,
+		DynamicWhere:    dynamicWhere,
 		InsertIntoTable: anlys.Table,
 	}, nil
 }

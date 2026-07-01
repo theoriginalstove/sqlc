@@ -12,9 +12,6 @@ import (
 	"github.com/sqlc-dev/sqlc/internal/sqltest/local"
 )
 
-// This suite runs the pgx/v5-native dynamic codegen against a real database.
-// The pgx template path is otherwise only golden-compared in TestReplay, never
-// executed, so these tests are the runtime coverage for it.
 func TestDynamicPgx(t *testing.T) {
 	ctx := context.Background()
 	uri := local.PostgreSQL(t, []string{"schema.sql"})
@@ -111,4 +108,122 @@ func TestDynamicPgx(t *testing.T) {
 			t.Fatalf("want first tenant row (alice, id %d), got %d", ids["alice"], got.ID)
 		}
 	})
+}
+
+func TestSearchContactsPgx(t *testing.T) {
+	ctx := context.Background()
+	uri := local.PostgreSQL(t, []string{"schema.sql"})
+
+	db, err := pgx.Connect(ctx, uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close(ctx)
+
+	q := New(db)
+	seedContacts(t, ctx, q)
+
+	assertNames := func(t *testing.T, rows []SearchContactsRow, want ...string) {
+		t.Helper()
+		got := map[string]bool{}
+		for _, r := range rows {
+			got[r.Name] = true
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %d rows %v, want %v", len(rows), got, want)
+		}
+		for _, w := range want {
+			if !got[w] {
+				t.Fatalf("missing %q in %v", w, got)
+			}
+		}
+	}
+
+	t.Run("no_filters_returns_all_tenant_rows", func(t *testing.T) {
+		got, err := q.SearchContacts(ctx, 1, SearchContactsOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice", "bob", "carol")
+	})
+
+	t.Run("name_only_emits_bare_leaf", func(t *testing.T) {
+		got, err := q.SearchContacts(ctx, 1, SearchContactsOpts{}.Name("alice"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice")
+	})
+
+	t.Run("both_set_is_a_disjunction", func(t *testing.T) {
+		// (name = alice OR status = inactive): alice by name, bob by status.
+		// An AND would return zero rows, so two rows proves the OR grouping.
+		got, err := q.SearchContacts(ctx, 1, SearchContactsOpts{}.Name("alice").Status("inactive"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice", "bob")
+	})
+}
+
+func TestExcludeContactsPgx(t *testing.T) {
+	ctx := context.Background()
+	uri := local.PostgreSQL(t, []string{"schema.sql"})
+
+	db, err := pgx.Connect(ctx, uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close(ctx)
+
+	q := New(db)
+	seedContacts(t, ctx, q)
+
+	assertNames := func(t *testing.T, rows []ExcludeContactsRow, want ...string) {
+		t.Helper()
+		got := map[string]bool{}
+		for _, r := range rows {
+			got[r.Name] = true
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %d rows %v, want %v", len(rows), got, want)
+		}
+		for _, w := range want {
+			if !got[w] {
+				t.Fatalf("missing %q in %v", w, got)
+			}
+		}
+	}
+
+	t.Run("no_filters_omits_the_negated_group", func(t *testing.T) {
+		got, err := q.ExcludeContacts(ctx, 1, ExcludeContactsOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice", "bob", "carol")
+	})
+
+	t.Run("negated_disjunction_is_de_morgan", func(t *testing.T) {
+		// NOT (name = alice OR status = active) => name != alice AND status != active => bob.
+		got, err := q.ExcludeContacts(ctx, 1, ExcludeContactsOpts{}.Name("alice").Status("active"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "bob")
+	})
+}
+
+func seedContacts(t *testing.T, ctx context.Context, q *Queries) {
+	t.Helper()
+	seed := []CreateRecordParams{
+		{TenantID: 1, Name: "alice", Age: 30, Status: "active"},
+		{TenantID: 1, Name: "bob", Age: 20, Status: "inactive"},
+		{TenantID: 1, Name: "carol", Age: 40, Status: "active"},
+		{TenantID: 2, Name: "dave", Age: 99, Status: "active"},
+	}
+	for _, s := range seed {
+		if err := q.CreateRecord(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

@@ -166,6 +166,7 @@ func pluginQueries(r *compiler.Result) []*plugin.Query {
 			Filename:        q.Metadata.Filename,
 			InsertIntoTable: iit,
 			DynamicOrderBy:  q.Metadata.DynamicSort,
+			DynamicWhere:    pluginDynamicNode(q.DynamicWhere),
 		})
 	}
 	return out
@@ -228,6 +229,20 @@ func pluginQueryParam(p compiler.Parameter) *plugin.Parameter {
 		Number: int32(p.Number),
 		Column: pluginQueryColumn(p.Column),
 	}
+}
+
+func pluginDynamicNode(n *compiler.DynamicNode) *plugin.DynamicNode {
+	if n == nil {
+		return nil
+	}
+	out := &plugin.DynamicNode{
+		Connector: n.Connector,
+		Param:     n.Param,
+	}
+	for _, c := range n.Children {
+		out.Children = append(out.Children, pluginDynamicNode(c))
+	}
+	return out
 }
 
 func codeGenRequest(r *compiler.Result, settings config.CombinedSettings) *plugin.GenerateRequest {

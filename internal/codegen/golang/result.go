@@ -280,6 +280,7 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 
 		if len(dynamicParams) > 0 || len(query.GetDynamicOrderBy()) > 0 {
 			dq := &DynamicQuery{StaticCount: len(staticParams)}
+			preds := make(map[string]DynamicPredicate, len(dynamicParams))
 			for _, p := range dynamicParams {
 				isSlice := p.Column.GetIsSqlcSlice()
 				var sqlOp string
@@ -294,15 +295,25 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 				if p.Column.GetOriginalName() != "" {
 					column = p.Column.GetOriginalName()
 				}
-				dq.Opts = append(dq.Opts, DynamicPredicate{
+				pred := DynamicPredicate{
 					FieldName: StructName(p.Column.GetName(), options),
 					VarName:   sdk.LowerTitle(field),
 					GoType:    qualifyType(goType(req, options, p.Column), models, qualifier),
 					Column:    column,
 					SQLOp:     sqlOp,
 					IsSlice:   isSlice,
-				})
+				}
+				dq.Opts = append(dq.Opts, pred)
+				preds[p.Column.GetName()] = pred
 			}
+
+			if root := query.GetDynamicWhere(); root != nil {
+				var counter int
+				for _, child := range root.GetChildren() {
+					dq.Steps = append(dq.Steps, flattenDynamic(child, preds, "conds", &counter)...)
+				}
+			}
+
 			for _, col := range query.GetDynamicOrderBy() {
 				dq.SortColumns = append(dq.SortColumns, DynamicSortColumn{
 					ConstName: gq.MethodName + "OrderBy" + StructName(col, options),

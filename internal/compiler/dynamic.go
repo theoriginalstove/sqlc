@@ -130,11 +130,112 @@ func isSpace(b byte) bool {
 		b == '\r'
 }
 
-type dynamicNode struct {
+type DynamicNode struct {
 	Connector string
 	Param     string
-	Children  []*dynamicNode
+	Children  []*DynamicNode
 }
 
-func buildDynamicTree(where ast.Node, params []Parameter, md metadata.Metadata) (*dynamicNode, error) {
+func buildDynamicTree(where ast.Node, params []Parameter, md metadata.Metadata) (*DynamicNode, error) {
+	if !md.Dynamic || len(md.DynamicParams) == 0 {
+		return nil, nil
+	}
+	numName := make(map[int]string, len(params))
+	dynNum := make(map[int]bool, len(params))
+
+	for _, p := range params {
+		if p.Column == nil {
+			continue
+		}
+
+		numName[p.Number] = p.Column.Name
+		if _, ok := md.DynamicParams[p.Column.Name]; ok {
+			dynNum[p.Number] = true
+		}
+	}
+
+	terms := []ast.Node{where}
+	if boolExpr, ok := where.(*ast.BoolExpr); ok && boolExpr.Boolop == ast.BoolExprTypeAnd {
+		terms = boolExpr.Args.Items
+	}
+
+	root := &DynamicNode{Connector: "AND"}
+	for _, term := range terms {
+		node, isDyn, err := classifyDynamic(term, numName, dynNum)
+		if err != nil {
+			return nil, err
+		}
+		if isDyn {
+			root.Children = append(root.Children, node)
+		}
+	}
+	return root, nil
+}
+
+func classifyDynamic(n ast.Node, numName map[int]string, dynNum map[int]bool) (*DynamicNode, bool, error) {
+	if boolExpr, ok := n.(*ast.BoolExpr); ok {
+		switch boolExpr.Boolop {
+		case ast.BoolExprTypeNot:
+			var inner ast.Node
+			if boolExpr.Args != nil && len(boolExpr.Args.Items) > 0 {
+				inner = boolExpr.Args.Items[0]
+			}
+			child, isDyn, err := classifyDynamic(inner, numName, dynNum)
+			if err != nil || !isDyn {
+				return nil, false, err
+			}
+			return &DynamicNode{Connector: "NOT", Children: []*DynamicNode{child}}, true, nil
+		case ast.BoolExprTypeAnd, ast.BoolExprTypeOr:
+			connector := "AND"
+			if boolExpr.Boolop == ast.BoolExprTypeOr {
+				connector = "OR"
+			}
+			var children []*DynamicNode
+			var anyStatic, anyDynamic bool
+			for _, arg := range boolExpr.Args.Items {
+				child, isDyn, err := classifyDynamic(arg, numName, dynNum)
+				if err != nil {
+					return nil, false, err
+				}
+				if isDyn {
+					anyDynamic = true
+					children = append(children, child)
+				} else {
+					anyStatic = true
+				}
+			}
+			switch {
+			case anyStatic && anyDynamic:
+				return nil, false, fmt.Errorf("dynamic: a group must be entirely dynamic (mixes static and dynamic)")
+			case anyDynamic:
+				return &DynamicNode{Connector: connector, Children: children}, true, nil
+			default:
+				// fully static group to stay in the const
+				return nil, false, nil
+			}
+		}
+	}
+	num, ok := leafParamNumber(n)
+	if !ok || !dynNum[num] {
+		return nil, false, nil
+	}
+	return &DynamicNode{Param: numName[num]}, true, nil
+}
+
+func leafParamNumber(n ast.Node) (int, bool) {
+	if n == nil {
+		return 0, false
+	}
+	refs := astutils.Search(n, func(node ast.Node) bool {
+		_, ok := node.(*ast.ParamRef)
+		return ok
+	})
+	if refs == nil || len(refs.Items) == 0 {
+		return 0, false
+	}
+	pr, ok := refs.Items[0].(*ast.ParamRef)
+	if !ok {
+		return 0, false
+	}
+	return pr.Number, true
 }

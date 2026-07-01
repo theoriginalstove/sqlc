@@ -69920,7 +69920,8 @@
       "comments": [],
       "filename": "query.sql",
       "insert_into_table": null,
-      "dynamic_order_by": []
+      "dynamic_order_by": [],
+      "dynamic_where": null
     },
     {
       "text": "SELECT id, name, bio FROM authors\nORDER BY name",
@@ -70016,7 +70017,8 @@
       "comments": [],
       "filename": "query.sql",
       "insert_into_table": null,
-      "dynamic_order_by": []
+      "dynamic_order_by": [],
+      "dynamic_where": null
     },
     {
       "text": "INSERT INTO authors (\n          name, bio\n) VALUES (\n  $1, $2\n)\nRETURNING id, name, bio",
@@ -70179,7 +70181,8 @@
         "schema": "",
         "name": "authors"
       },
-      "dynamic_order_by": []
+      "dynamic_order_by": [],
+      "dynamic_where": null
     },
     {
       "text": "DELETE FROM authors\nWHERE id = $1",
@@ -70222,7 +70225,8 @@
       "comments": [],
       "filename": "query.sql",
       "insert_into_table": null,
-      "dynamic_order_by": []
+      "dynamic_order_by": [],
+      "dynamic_where": null
     }
   ],
   "sqlc_version": "v1.31.1",

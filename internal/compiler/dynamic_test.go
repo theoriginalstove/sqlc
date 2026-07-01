@@ -231,15 +231,15 @@ func boolExpr(op ast.BoolExprType, args ...ast.Node) *ast.BoolExpr {
 	return &ast.BoolExpr{Boolop: op, Args: &ast.List{Items: args}}
 }
 
-func leafNode(param string) *dynamicNode {
-	return &dynamicNode{Param: param}
+func leafNode(param string) *DynamicNode {
+	return &DynamicNode{Param: param}
 }
 
-func groupNode(conn string, kids ...*dynamicNode) *dynamicNode {
-	return &dynamicNode{Connector: conn, Children: kids}
+func groupNode(conn string, kids ...*DynamicNode) *DynamicNode {
+	return &DynamicNode{Connector: conn, Children: kids}
 }
 
-func dumpNode(n *dynamicNode) string {
+func dumpNode(n *DynamicNode) string {
 	if n == nil {
 		return "<nil>"
 	}
@@ -253,7 +253,7 @@ func dumpNode(n *dynamicNode) string {
 	return n.Connector + "(" + strings.Join(parts, ", ") + ")"
 }
 
-func assertTree(t *testing.T, got, want *dynamicNode) {
+func assertTree(t *testing.T, got, want *DynamicNode) {
 	t.Helper()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildDynamicTree mismatch\n got: %s\nwant: %s",
@@ -275,7 +275,7 @@ func TestBuildDynamicTree(t *testing.T) {
 		where   ast.Node
 		params  []Parameter
 		md      metadata.Metadata
-		want    *dynamicNode
+		want    *DynamicNode
 		wantErr bool
 	}{
 		{
@@ -285,6 +285,18 @@ func TestBuildDynamicTree(t *testing.T) {
 			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "age")},
 			md:     dyn("name", "age"),
 			want:   groupNode("AND", leafNode("name"), leafNode("age")),
+		},
+		{
+			name: "IN slice predicate is a dynamic leaf",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1),
+				&ast.In{
+					Expr: &ast.ColumnRef{Name: "id"},
+					List: []ast.Node{&ast.ParamRef{Number: 2}},
+				}),
+			params: []Parameter{param(1, "tenant_id"), param(2, "ids")},
+			md:     dyn("ids"),
+			want:   groupNode("AND", leafNode("ids")),
 		},
 		{
 			name: "static leaf plus a dynamic OR group",

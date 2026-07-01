@@ -63,23 +63,35 @@ func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.
 	conds := make([]string, 0, {{len $q.Dynamic.Opts}})
 	n := {{$q.Dynamic.StaticCount}}
 	_ = n
-{{- range $q.Dynamic.Opts}}
-	{{- if .IsSlice}}
-	if len(opts.{{.VarName}}) > 0 {
-		ph := make([]string, len(opts.{{.VarName}}))
-		for i, v := range opts.{{.VarName}} {
+{{- range $q.Dynamic.Steps}}
+	{{- if eq .Kind "open"}}
+	{{.SliceVar}} := make([]string, 0, {{.Cap}})
+	{{- else if eq .Kind "close"}}
+	switch len({{.SliceVar}}) {
+	case 0:
+	case 1:
+		{{.Target}} = append({{.Target}}, {{if .Not}}"NOT ("+{{.SliceVar}}[0]+")"{{else}}{{.SliceVar}}[0]{{end}})
+	default:
+		{{.Target}} = append({{.Target}}, {{if .Not}}"NOT "+{{end}}"("+strings.Join({{.SliceVar}}, " {{.Connector}} ")+")")
+	}
+	{{- else}}
+	{{- if .Predicate.IsSlice}}
+	if len(opts.{{.Predicate.VarName}}) > 0 {
+		ph := make([]string, len(opts.{{.Predicate.VarName}}))
+		for i, v := range opts.{{.Predicate.VarName}} {
 			n++
 			ph[i] = fmt.Sprintf("$%d", n)
 			queryParams = append(queryParams, v)
 		}
-		conds = append(conds, "{{.Column}} IN ("+strings.Join(ph, ", ")+")")
+		{{.Target}} = append({{.Target}}, "{{.Predicate.Column}} IN ("+strings.Join(ph, ", ")+")")
 	}
 	{{- else}}
-	if opts.{{.VarName}} != nil {
+	if opts.{{.Predicate.VarName}} != nil {
 		n++
-		conds = append(conds, fmt.Sprintf("{{.Column}} {{.SQLOp}} $%d", n))
-		queryParams = append(queryParams, *opts.{{.VarName}})
+		{{.Target}} = append({{.Target}}, fmt.Sprintf("{{.Predicate.Column}} {{.Predicate.SQLOp}} $%d", n))
+		queryParams = append(queryParams, *opts.{{.Predicate.VarName}})
 	}
+	{{- end}}
 	{{- end}}
 {{- end}}
 	if len(conds) > 0 {

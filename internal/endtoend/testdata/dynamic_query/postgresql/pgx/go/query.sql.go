@@ -13,6 +13,98 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const excludeContacts = `-- name: ExcludeContacts :many
+SELECT id, name, age, status, created_at FROM records
+WHERE tenant_id = $1
+`
+
+type ExcludeContactsRow struct {
+	ID        int64
+	Name      string
+	Age       int32
+	Status    string
+	CreatedAt pgtype.Timestamptz
+}
+
+type ExcludeContactsOpts struct {
+	name    *string
+	status  *string
+	orderBy []string
+}
+
+func (o ExcludeContactsOpts) Name(v string) ExcludeContactsOpts {
+	o.name = &v
+	return o
+}
+
+func (o ExcludeContactsOpts) Status(v string) ExcludeContactsOpts {
+	o.status = &v
+	return o
+}
+
+func (q *Queries) ExcludeContacts(ctx context.Context, db DBTX, tenantID int64, opts ExcludeContactsOpts) ([]ExcludeContactsRow, error) {
+	query := excludeContacts
+	queryParams := []interface{}{tenantID}
+	conds := make([]string, 0, 2)
+	n := 1
+	_ = n
+	g0 := make([]string, 0, 1)
+	g1 := make([]string, 0, 2)
+	if opts.name != nil {
+		n++
+		g1 = append(g1, fmt.Sprintf("name = $%d", n))
+		queryParams = append(queryParams, *opts.name)
+	}
+	if opts.status != nil {
+		n++
+		g1 = append(g1, fmt.Sprintf("status = $%d", n))
+		queryParams = append(queryParams, *opts.status)
+	}
+	switch len(g1) {
+	case 0:
+	case 1:
+		g0 = append(g0, g1[0])
+	default:
+		g0 = append(g0, "("+strings.Join(g1, " OR ")+")")
+	}
+	switch len(g0) {
+	case 0:
+	case 1:
+		conds = append(conds, "NOT ("+g0[0]+")")
+	default:
+		conds = append(conds, "NOT "+"("+strings.Join(g0, " AND ")+")")
+	}
+	if len(conds) > 0 {
+		query += " AND " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+	rows, err := db.Query(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ExcludeContactsRow
+	for rows.Next() {
+		var i ExcludeContactsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Age,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const filterRecords = `-- name: FilterRecords :many
 SELECT id, name, age, created_at FROM records
 WHERE tenant_id = $1
@@ -323,6 +415,90 @@ func (q *Queries) ListRecords(ctx context.Context, db DBTX, tenantID int64, opts
 			&i.ID,
 			&i.Name,
 			&i.Age,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchContacts = `-- name: SearchContacts :many
+SELECT id, name, age, status, created_at FROM records
+WHERE tenant_id = $1
+`
+
+type SearchContactsRow struct {
+	ID        int64
+	Name      string
+	Age       int32
+	Status    string
+	CreatedAt pgtype.Timestamptz
+}
+
+type SearchContactsOpts struct {
+	name    *string
+	status  *string
+	orderBy []string
+}
+
+func (o SearchContactsOpts) Name(v string) SearchContactsOpts {
+	o.name = &v
+	return o
+}
+
+func (o SearchContactsOpts) Status(v string) SearchContactsOpts {
+	o.status = &v
+	return o
+}
+
+func (q *Queries) SearchContacts(ctx context.Context, db DBTX, tenantID int64, opts SearchContactsOpts) ([]SearchContactsRow, error) {
+	query := searchContacts
+	queryParams := []interface{}{tenantID}
+	conds := make([]string, 0, 2)
+	n := 1
+	_ = n
+	g0 := make([]string, 0, 2)
+	if opts.name != nil {
+		n++
+		g0 = append(g0, fmt.Sprintf("name = $%d", n))
+		queryParams = append(queryParams, *opts.name)
+	}
+	if opts.status != nil {
+		n++
+		g0 = append(g0, fmt.Sprintf("status = $%d", n))
+		queryParams = append(queryParams, *opts.status)
+	}
+	switch len(g0) {
+	case 0:
+	case 1:
+		conds = append(conds, g0[0])
+	default:
+		conds = append(conds, "("+strings.Join(g0, " OR ")+")")
+	}
+	if len(conds) > 0 {
+		query += " AND " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+	rows, err := db.Query(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchContactsRow
+	for rows.Next() {
+		var i SearchContactsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Age,
+			&i.Status,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
