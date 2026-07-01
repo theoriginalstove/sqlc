@@ -52,6 +52,37 @@ func TestParseQueryNameAndType(t *testing.T) {
 			t.Errorf("incorrectly determined as dynimc query: (%v) %q", dynamic, query)
 		}
 	}
+
+	for query, want := range map[string]struct {
+		cmd string
+	}{
+		`-- name: ListFoos :dynamicmany`: {cmd: CmdMany},
+		`-- name: GetFoo :dynamicone`:    {cmd: CmdOne},
+	} {
+		queryName, queryCmd, dynamic, err := ParseQueryNameAndType(query, CommentSyntax{Dash: true})
+		if err != nil {
+			t.Errorf("expected valid metadata: %q", query)
+		}
+		if queryCmd != want.cmd {
+			t.Errorf("incorrect queryCmd parsed: got %q, want %q for %q", queryCmd, want.cmd, query)
+		}
+		if !dynamic {
+			t.Errorf("expected dynamic query: %q", query)
+		}
+		if err := validateQueryName(queryName); err != nil {
+			t.Errorf("unexpected invalid query name %q: %v", queryName, err)
+		}
+	}
+
+	// a base command followed by a stray token is still rejected as an invalid modifier
+	for _, query := range []string{
+		`-- name: ListFoos :many :dynamic`,
+		`-- name: ListFoos :one :many`,
+	} {
+		if _, _, _, err := ParseQueryNameAndType(query, CommentSyntax{Dash: true}); err == nil {
+			t.Errorf("expected invalid metadata: %q", query)
+		}
+	}
 }
 
 func TestParseQueryParams(t *testing.T) {

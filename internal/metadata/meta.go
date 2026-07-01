@@ -35,16 +35,18 @@ type Metadata struct {
 }
 
 const (
-	CmdExec       = ":exec"
-	CmdExecResult = ":execresult"
-	CmdExecRows   = ":execrows"
-	CmdExecLastId = ":execlastid"
-	CmdMany       = ":many"
-	CmdOne        = ":one"
-	CmdCopyFrom   = ":copyfrom"
-	CmdBatchExec  = ":batchexec"
-	CmdBatchMany  = ":batchmany"
-	CmdBatchOne   = ":batchone"
+	CmdExec        = ":exec"
+	CmdExecResult  = ":execresult"
+	CmdExecRows    = ":execrows"
+	CmdExecLastId  = ":execlastid"
+	CmdMany        = ":many"
+	CmdOne         = ":one"
+	CmdCopyFrom    = ":copyfrom"
+	CmdBatchExec   = ":batchexec"
+	CmdBatchMany   = ":batchmany"
+	CmdBatchOne    = ":batchone"
+	CmdDynamicOne  = ":dynamicone"
+	CmdDynamicMany = ":dynamicmany"
 )
 
 // A query name must be a valid Go identifier
@@ -105,30 +107,28 @@ func ParseQueryNameAndType(t string, commentStyle CommentSyntax) (string, string
 		if prefix == "/*" {
 			part = part[:len(part)-1] // removes the trailing "*/" element
 		}
-		if len(part) < 3 {
-			return "", "", false, fmt.Errorf("invalid query comment: %s", line)
-		}
 		if len(part) == 3 {
 			return "", "", false, fmt.Errorf("missing query type [':one', ':many', ':exec', ':execrows', ':execlastid', ':execresult', ':copyfrom', 'batchexec', 'batchmany', 'batchone']: %s", line)
 		}
+		if len(part) != 4 {
+			return "", "", false, fmt.Errorf("invalid query comment: %s", line)
+		}
 		queryName := part[2]
 		queryType := strings.TrimSpace(part[3])
+		var dynamic bool
 		switch queryType {
 		case CmdOne, CmdMany, CmdExec, CmdExecResult, CmdExecRows, CmdExecLastId, CmdCopyFrom, CmdBatchExec, CmdBatchMany, CmdBatchOne:
+		case CmdDynamicOne:
+			dynamic = true
+			queryType = CmdOne
+		case CmdDynamicMany:
+			dynamic = true
+			queryType = CmdMany
 		default:
 			return "", "", false, fmt.Errorf("invalid query type: %s", queryType)
 		}
 		if err := validateQueryName(queryName); err != nil {
 			return "", "", false, err
-		}
-		var dynamic bool
-		for _, modifier := range part[4:] {
-			switch strings.TrimSpace(modifier) {
-			case ":dynamic":
-				dynamic = true
-			default:
-				return "", "", false, fmt.Errorf("invalid query modifier %q: %s", modifier, line)
-			}
 		}
 		return queryName, queryType, dynamic, nil
 	}
