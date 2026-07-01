@@ -57,7 +57,7 @@ func (o {{$q.MethodName}}Opts) OrderBy(col {{$q.MethodName}}OrderByColumn, desc 
 {{end -}}
 {{range $q.Comments}}//{{.}}
 {{end -}}
-func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.Arg.Pair}}, {{end}}opts {{$q.MethodName}}Opts) ([]{{$q.Ret.DefineType}}, error) {
+func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.Arg.Pair}}, {{end}}opts {{$q.MethodName}}Opts) ({{if eq $q.Cmd ":one"}}{{$q.Ret.DefineType}}{{else}}[]{{$q.Ret.DefineType}}{{end}}, error) {
 	query := {{$q.ConstantName}}
 	queryParams := []interface{}{ {{$q.Arg.Params}} }
 	conds := make([]string, 0, {{len $q.Dynamic.Opts}})
@@ -88,6 +88,17 @@ func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.
 	if len(opts.orderBy) > 0 {
 		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
 	}
+{{- if eq $q.Cmd ":one"}}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var {{$q.Ret.Name}} {{$q.Ret.Type}}
+	err := row.Scan({{$q.Ret.Scan}})
+	{{- if $.WrapErrors}}
+	if err != nil {
+		err = fmt.Errorf("query {{$q.MethodName}}: %w", err)
+	}
+	{{- end}}
+	return {{$q.Ret.ReturnName}}, err
+{{- else}}
 	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, {{if $.WrapErrors}}fmt.Errorf("query {{$q.MethodName}}: %w", err){{else}}err{{end}}
@@ -112,6 +123,7 @@ func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.
 		return nil, {{if $.WrapErrors}}fmt.Errorf("query {{$q.MethodName}}: %w", err){{else}}err{{end}}
 	}
 	return items, nil
+{{- end}}
 }
 {{else}}
 {{if eq .Cmd ":one"}}
