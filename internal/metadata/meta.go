@@ -180,10 +180,8 @@ func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, m
 		case constants.QueryFlagDynamic:
 			s.Scan()
 			name := s.Text()
-			s.Scan()
-			op := s.Text()
 			if name != "" {
-				dynamicParams[name] = op
+				dynamicParams[name] = ""
 			}
 		case constants.QueryFlagDynamicSort:
 			for s.Scan() {

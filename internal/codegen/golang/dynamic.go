@@ -8,10 +8,6 @@ type DynamicQuery struct {
 	SortColumns []DynamicSortColumn
 }
 
-var dynamicSQLOperators = map[string]string{
-	"eq": "=", "ne": "<>", "gt": ">", "lt": "<", "gte": ">=", "lte": "<=", "like": "LIKE",
-}
-
 type DynamicPredicate struct {
 	FieldName string
 	VarName   string
@@ -40,8 +36,8 @@ func parseDynamicComments(comments []string) (ops map[string]string, sort, filte
 		}
 		switch fields[0] {
 		case "@dynamic":
-			if len(fields) >= 3 {
-				ops[fields[1]] = fields[2]
+			if len(fields) >= 2 {
+				ops[fields[1]] = ""
 			}
 		case "@dynamic-sort":
 			for _, col := range fields[1:] {

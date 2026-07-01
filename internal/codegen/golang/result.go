@@ -288,11 +288,10 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 				isSlice := p.Column.GetIsSqlcSlice()
 				var sqlOp string
 				if !isSlice {
-					op, ok := dynamicSQLOperators[ops[p.Column.GetName()]]
-					if !ok {
-						return nil, fmt.Errorf("dynamic param %q: unsupported operator %q", p.Column.GetName(), ops[p.Column.GetName()])
+					sqlOp = p.Column.GetDynamicOp()
+					if sqlOp == "" {
+						return nil, fmt.Errorf("dynamic param %q: could not infer a comparison operator from the query", p.Column.GetName())
 					}
-					sqlOp = op
 				}
 				field := StructName(p.Column.GetName(), options)
 				column := p.Column.GetName()

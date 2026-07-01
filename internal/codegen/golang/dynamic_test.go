@@ -14,14 +14,17 @@ func TestParseDynamicComments(t *testing.T) {
 		wantFiltered []string
 	}{
 		{
-			name: "mixed dynamic annotations and a doc comment",
+			// The operator is now inferred from the query's WHERE clause
+			// (Column.DynamicOp), so parseDynamicComments only records
+			// membership; the map values are empty markers.
+			name: "bare @dynamic marks membership; trailing op is ignored",
 			comments: []string{
-				" @dynamic name eq",
-				" @dynamic age gt",
+				" @dynamic name",       // bare form
+				" @dynamic age gt",     // legacy trailing op is ignored
 				" @dynamic-sort name, age, created_at",
 				" ListRecords lists records",
 			},
-			wantOps:      map[string]string{"name": "eq", "age": "gt"},
+			wantOps:      map[string]string{"name": "", "age": ""},
 			wantSort:     []string{"name", "age", "created_at"},
 			wantFiltered: []string{" ListRecords lists records"},
 		},
