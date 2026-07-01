@@ -3,7 +3,7 @@
 //   sqlc v1.31.1
 // source: query.sql
 
-package dynamicquerysqlite
+package dynamicquerymysql
 
 import (
 	"context"
@@ -13,13 +13,13 @@ import (
 
 const createRecord = `-- name: CreateRecord :exec
 INSERT INTO records (tenant_id, name, age, status)
-VALUES (?1, ?2, ?3, ?4)
+VALUES (?, ?, ?, ?)
 `
 
 type CreateRecordParams struct {
 	TenantID int64
 	Name     string
-	Age      int64
+	Age      int32
 	Status   string
 }
 
@@ -35,13 +35,13 @@ func (q *Queries) CreateRecord(ctx context.Context, arg CreateRecordParams) erro
 
 const excludeContacts = `-- name: ExcludeContacts :many
 SELECT id, name, age, status, created_at FROM records
-WHERE tenant_id = ?1
+WHERE tenant_id = ?
 `
 
 type ExcludeContactsRow struct {
 	ID        int64
 	Name      string
-	Age       int64
+	Age       int32
 	Status    string
 	CreatedAt time.Time
 }
@@ -127,13 +127,13 @@ func (q *Queries) ExcludeContacts(ctx context.Context, tenantID int64, opts Excl
 
 const filterRecords = `-- name: FilterRecords :many
 SELECT id, name, age, created_at FROM records
-WHERE tenant_id = ?1
+WHERE tenant_id = ?
 `
 
 type FilterRecordsRow struct {
 	ID        int64
 	Name      string
-	Age       int64
+	Age       int32
 	CreatedAt time.Time
 }
 
@@ -195,19 +195,19 @@ func (q *Queries) FilterRecords(ctx context.Context, tenantID int64, opts Filter
 
 const listRecords = `-- name: ListRecords :many
 SELECT id, name, age, created_at FROM records
-WHERE tenant_id = ?1
+WHERE tenant_id = ?
 `
 
 type ListRecordsRow struct {
 	ID        int64
 	Name      string
-	Age       int64
+	Age       int32
 	CreatedAt time.Time
 }
 
 type ListRecordsOpts struct {
 	name    *string
-	age     *int64
+	age     *int32
 	orderBy []string
 }
 
@@ -216,7 +216,7 @@ func (o ListRecordsOpts) Name(v string) ListRecordsOpts {
 	return o
 }
 
-func (o ListRecordsOpts) Age(v int64) ListRecordsOpts {
+func (o ListRecordsOpts) Age(v int32) ListRecordsOpts {
 	o.age = &v
 	return o
 }
@@ -286,13 +286,13 @@ func (q *Queries) ListRecords(ctx context.Context, tenantID int64, opts ListReco
 
 const searchContacts = `-- name: SearchContacts :many
 SELECT id, name, age, status, created_at FROM records
-WHERE tenant_id = ?1
+WHERE tenant_id = ?
 `
 
 type SearchContactsRow struct {
 	ID        int64
 	Name      string
-	Age       int64
+	Age       int32
 	Status    string
 	CreatedAt time.Time
 }

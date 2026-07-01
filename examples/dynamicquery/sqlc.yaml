@@ -22,3 +22,10 @@ sql:
     go:
       package: dynamicquerysqlite
       out: sqlite
+- engine: mysql
+  schema: mysql/schema.sql
+  queries: mysql/query.sql
+  gen:
+    go:
+      package: dynamicquerymysql
+      out: mysql

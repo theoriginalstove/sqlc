@@ -341,6 +341,11 @@ func (c *cc) convertColumnNameExpr(n *parser.Expr_qualified_column_nameContext) 
 func (c *cc) convertComparison(n *parser.Expr_comparisonContext) ast.Node {
 	lexpr := c.convert(n.Expr(0))
 
+	op := "="
+	if term, ok := n.GetChild(1).(antlr.TerminalNode); ok {
+		op = term.GetText()
+	}
+
 	if n.IN_() != nil {
 		rexprs := []ast.Node{}
 		for _, expr := range n.AllExpr()[1:] {
@@ -365,7 +370,7 @@ func (c *cc) convertComparison(n *parser.Expr_comparisonContext) ast.Node {
 	return &ast.A_Expr{
 		Name: &ast.List{
 			Items: []ast.Node{
-				&ast.String{Str: "="}, // TODO: add actual comparison
+				&ast.String{Str: op},
 			},
 		},
 		Lexpr: lexpr,
@@ -522,6 +527,10 @@ func (c *cc) convertMultiSelect_stmtContext(n *parser.Select_stmtContext) ast.No
 }
 
 func (c *cc) convertExprListContext(n *parser.Expr_listContext) ast.Node {
+	exprs := n.AllExpr()
+	if len(exprs) == 1 {
+		return c.convert(exprs[0])
+	}
 	list := &ast.List{Items: []ast.Node{}}
 	for _, e := range n.AllExpr() {
 		list.Items = append(list.Items, c.convert(e))
@@ -826,7 +835,7 @@ func (c *cc) convertUnaryExpr(n *parser.Expr_unaryContext) ast.Node {
 		if opCtx.MINUS() != nil {
 			// Negative number: -expr
 			return &ast.A_Expr{
-				Name: &ast.List{Items: []ast.Node{&ast.String{Str: "-"}}},
+				Name:  &ast.List{Items: []ast.Node{&ast.String{Str: "-"}}},
 				Rexpr: expr,
 			}
 		}
@@ -837,7 +846,7 @@ func (c *cc) convertUnaryExpr(n *parser.Expr_unaryContext) ast.Node {
 		if opCtx.TILDE() != nil {
 			// Bitwise NOT: ~expr
 			return &ast.A_Expr{
-				Name: &ast.List{Items: []ast.Node{&ast.String{Str: "~"}}},
+				Name:  &ast.List{Items: []ast.Node{&ast.String{Str: "~"}}},
 				Rexpr: expr,
 			}
 		}
