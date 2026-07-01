@@ -1,6 +1,8 @@
 package compiler
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sqlc-dev/sqlc/internal/metadata"
@@ -13,7 +15,6 @@ func TestNormalizeDynamicOperator(t *testing.T) {
 		want   string
 		wantOK bool
 	}{
-		// comparison operators pass through unchanged
 		{"=", "=", true},
 		{"<", "<", true},
 		{">", ">", true},
@@ -134,6 +135,57 @@ func TestBuildDynamicCodegenSQL(t *testing.T) {
 			want:   "",
 		},
 		{
+			name: "dynamic OR group suffix",
+			sql: "SELECT id, name, email FROM records\n" +
+				"WHERE tenant_id = $1\n" +
+				"  AND (name = $2 OR email = $3)",
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "email")},
+			md: metadata.Metadata{
+				Dynamic:       true,
+				DynamicParams: map[string]string{"name": "", "email": ""},
+			},
+			want: "SELECT id, name, email FROM records\n" +
+				"WHERE tenant_id = $1",
+		},
+		{
+			name: "dynamic OR group then leaf",
+			sql: "SELECT id, name, email, age FROM records\n" +
+				"WHERE tenant_id = $1\n" +
+				"  AND (name = $2 OR email = $3)\n" +
+				"  AND age >= $4",
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "email"), param(4, "age")},
+			md: metadata.Metadata{
+				Dynamic:       true,
+				DynamicParams: map[string]string{"name": "", "email": "", "age": ""},
+			},
+			want: "SELECT id, name, email, age FROM records\n" +
+				"WHERE tenant_id = $1",
+		},
+		{
+			name: "dynamic NOT group suffix",
+			sql: "SELECT id, name, age FROM records\n" +
+				"WHERE tenant_id = $1\n" +
+				"  AND NOT (name = $2 AND age > $3)",
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "age")},
+			md: metadata.Metadata{
+				Dynamic:       true,
+				DynamicParams: map[string]string{"name": "", "age": ""},
+			},
+			want: "SELECT id, name, age FROM records\n" +
+				"WHERE tenant_id = $1",
+		},
+		{
+			name: "entirely dynamic OR group",
+			sql: "SELECT id, name, email FROM records\n" +
+				"WHERE (name = $1 OR email = $2)",
+			params: []Parameter{param(1, "name"), param(2, "email")},
+			md: metadata.Metadata{
+				Dynamic:       true,
+				DynamicParams: map[string]string{"name": "", "email": ""},
+			},
+			want: "SELECT id, name, email FROM records",
+		},
+		{
 			name: "dynamic param before static param is an error",
 			sql: "SELECT id FROM records\n" +
 				"WHERE name = $1\n" +
@@ -162,6 +214,190 @@ func TestBuildDynamicCodegenSQL(t *testing.T) {
 			if got != tt.want {
 				t.Fatalf("buildDynamicCodegenSQL mismatch\n got: %q\nwant: %q", got, tt.want)
 			}
+		})
+	}
+}
+
+func cmpLeaf(col string, paramNum int) *ast.A_Expr {
+	return &ast.A_Expr{
+		Kind:  ast.A_Expr_Kind_OP,
+		Name:  &ast.List{Items: []ast.Node{&ast.String{Str: "="}}},
+		Lexpr: &ast.ColumnRef{Name: col},
+		Rexpr: &ast.ParamRef{Number: paramNum},
+	}
+}
+
+func boolExpr(op ast.BoolExprType, args ...ast.Node) *ast.BoolExpr {
+	return &ast.BoolExpr{Boolop: op, Args: &ast.List{Items: args}}
+}
+
+func leafNode(param string) *dynamicNode {
+	return &dynamicNode{Param: param}
+}
+
+func groupNode(conn string, kids ...*dynamicNode) *dynamicNode {
+	return &dynamicNode{Connector: conn, Children: kids}
+}
+
+func dumpNode(n *dynamicNode) string {
+	if n == nil {
+		return "<nil>"
+	}
+	if n.Connector == "" {
+		return n.Param
+	}
+	parts := make([]string, len(n.Children))
+	for i, c := range n.Children {
+		parts[i] = dumpNode(c)
+	}
+	return n.Connector + "(" + strings.Join(parts, ", ") + ")"
+}
+
+func assertTree(t *testing.T, got, want *dynamicNode) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildDynamicTree mismatch\n got: %s\nwant: %s",
+			dumpNode(got), dumpNode(want))
+	}
+}
+
+func TestBuildDynamicTree(t *testing.T) {
+	dyn := func(names ...string) metadata.Metadata {
+		dp := make(map[string]string, len(names))
+		for _, n := range names {
+			dp[n] = ""
+		}
+		return metadata.Metadata{Dynamic: true, DynamicParams: dp}
+	}
+
+	tests := []struct {
+		name    string
+		where   ast.Node
+		params  []Parameter
+		md      metadata.Metadata
+		want    *dynamicNode
+		wantErr bool
+	}{
+		{
+			name: "flat AND of static + dynamic leaves",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1), cmpLeaf("name", 2), cmpLeaf("age", 3)),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "age")},
+			md:     dyn("name", "age"),
+			want:   groupNode("AND", leafNode("name"), leafNode("age")),
+		},
+		{
+			name: "static leaf plus a dynamic OR group",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1),
+				boolExpr(ast.BoolExprTypeOr, cmpLeaf("name", 2), cmpLeaf("email", 3))),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "email")},
+			md:     dyn("name", "email"),
+			want: groupNode("AND",
+				groupNode("OR", leafNode("name"), leafNode("email"))),
+		},
+		{
+			name: "dynamic OR group followed by a dynamic leaf",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1),
+				boolExpr(ast.BoolExprTypeOr, cmpLeaf("name", 2), cmpLeaf("email", 3)),
+				cmpLeaf("age", 4)),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "email"), param(4, "age")},
+			md:     dyn("name", "email", "age"),
+			want: groupNode("AND",
+				groupNode("OR", leafNode("name"), leafNode("email")),
+				leafNode("age")),
+		},
+		{
+			name: "NOT wrapping a nested dynamic AND group",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1),
+				boolExpr(ast.BoolExprTypeNot,
+					boolExpr(ast.BoolExprTypeAnd, cmpLeaf("name", 2), cmpLeaf("age", 3)))),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "age")},
+			md:     dyn("name", "age"),
+			want: groupNode("AND",
+				groupNode("NOT",
+					groupNode("AND", leafNode("name"), leafNode("age")))),
+		},
+		{
+			name: "entirely dynamic top-level OR group",
+			where: boolExpr(ast.BoolExprTypeOr,
+				cmpLeaf("name", 1), cmpLeaf("email", 2)),
+			params: []Parameter{param(1, "name"), param(2, "email")},
+			md:     dyn("name", "email"),
+			want: groupNode("AND",
+				groupNode("OR", leafNode("name"), leafNode("email"))),
+		},
+		{
+			name: "deeply nested dynamic groups",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1),
+				boolExpr(ast.BoolExprTypeOr,
+					cmpLeaf("name", 2),
+					boolExpr(ast.BoolExprTypeAnd, cmpLeaf("min_age", 3), cmpLeaf("max_age", 4)))),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name"), param(3, "min_age"), param(4, "max_age")},
+			md:     dyn("name", "min_age", "max_age"),
+			want: groupNode("AND",
+				groupNode("OR",
+					leafNode("name"),
+					groupNode("AND", leafNode("min_age"), leafNode("max_age")))),
+		},
+		{
+			name: "NOT wrapping a single dynamic leaf",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				cmpLeaf("tenant_id", 1),
+				boolExpr(ast.BoolExprTypeNot, cmpLeaf("name", 2))),
+			params: []Parameter{param(1, "tenant_id"), param(2, "name")},
+			md:     dyn("name"),
+			want:   groupNode("AND", groupNode("NOT", leafNode("name"))),
+		},
+		{
+			name: "fully static nested group is dropped",
+			where: boolExpr(ast.BoolExprTypeAnd,
+				boolExpr(ast.BoolExprTypeAnd, cmpLeaf("tenant_id", 1), cmpLeaf("status", 2)),
+				cmpLeaf("name", 3)),
+			params: []Parameter{param(1, "tenant_id"), param(2, "status"), param(3, "name")},
+			md:     dyn("name"),
+			want:   groupNode("AND", leafNode("name")),
+		},
+		{
+			name:   "single dynamic leaf as the whole where",
+			where:  cmpLeaf("name", 1),
+			params: []Parameter{param(1, "name")},
+			md:     dyn("name"),
+			want:   groupNode("AND", leafNode("name")),
+		},
+		{
+			name:   "non-dynamic query yields a nil tree",
+			where:  boolExpr(ast.BoolExprTypeAnd, cmpLeaf("tenant_id", 1)),
+			params: []Parameter{param(1, "tenant_id")},
+			md:     metadata.Metadata{},
+			want:   nil,
+		},
+		{
+			name: "mixed static and dynamic in one group is an error",
+			where: boolExpr(ast.BoolExprTypeOr,
+				cmpLeaf("tenant_id", 1), cmpLeaf("name", 2)),
+			params:  []Parameter{param(1, "tenant_id"), param(2, "name")},
+			md:      dyn("name"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildDynamicTree(tt.where, tt.params, tt.md)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got none (tree %+v)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			assertTree(t, got, tt.want)
 		})
 	}
 }

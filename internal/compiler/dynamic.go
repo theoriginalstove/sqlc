@@ -129,3 +129,12 @@ func isSpace(b byte) bool {
 		b == '\n' ||
 		b == '\r'
 }
+
+type dynamicNode struct {
+	Connector string
+	Param     string
+	Children  []*dynamicNode
+}
+
+func buildDynamicTree(where ast.Node, params []Parameter, md metadata.Metadata) (*dynamicNode, error) {
+}

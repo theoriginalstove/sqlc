@@ -451,3 +451,153 @@ func TestGetRecordInDynamic(t *testing.T) {
 		}
 	})
 }
+
+func seedContacts(t *testing.T, ctx context.Context, q *Queries) {
+	t.Helper()
+	seed := []CreateRecordParams{
+		{TenantID: 1, Name: "alice", Age: 30, Status: "active"},
+		{TenantID: 1, Name: "bob", Age: 20, Status: "inactive"},
+		{TenantID: 1, Name: "carol", Age: 40, Status: "active"},
+		{TenantID: 2, Name: "dave", Age: 99, Status: "active"},
+	}
+	for _, s := range seed {
+		if err := q.CreateRecord(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestSearchContactsDynamic(t *testing.T) {
+	ctx := context.Background()
+	uri := local.PostgreSQL(t, []string{"schema.sql"})
+
+	db, err := sql.Open("pgx", uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	q := New(db)
+	seedContacts(t, ctx, q)
+
+	assertNames := func(t *testing.T, rows []SearchContactsRow, want ...string) {
+		t.Helper()
+		got := map[string]bool{}
+		for _, r := range rows {
+			got[r.Name] = true
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %d rows %v, want %v", len(rows), got, want)
+		}
+		for _, w := range want {
+			if !got[w] {
+				t.Fatalf("missing %q in %v", w, got)
+			}
+		}
+	}
+
+	t.Run("no_filters_returns_all_tenant_rows", func(t *testing.T) {
+		got, err := q.SearchContacts(ctx, 1, SearchContactsOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice", "bob", "carol")
+	})
+
+	t.Run("name_only_emits_bare_leaf", func(t *testing.T) {
+		got, err := q.SearchContacts(ctx, 1, SearchContactsOpts{}.Name("alice"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice")
+	})
+
+	t.Run("status_only_emits_bare_leaf", func(t *testing.T) {
+		got, err := q.SearchContacts(ctx, 1, SearchContactsOpts{}.Status("inactive"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "bob")
+	})
+
+	t.Run("both_set_is_a_disjunction", func(t *testing.T) {
+		// (name = alice OR status = inactive): alice by name, bob by status.
+		// An AND here would return zero rows, so two rows proves the OR grouping.
+		got, err := q.SearchContacts(ctx, 1, SearchContactsOpts{}.Name("alice").Status("inactive"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice", "bob")
+	})
+
+	t.Run("static_tenant_isolates", func(t *testing.T) {
+		got, err := q.SearchContacts(ctx, 2, SearchContactsOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "dave")
+	})
+}
+
+func TestExcludeContactsDynamic(t *testing.T) {
+	ctx := context.Background()
+	uri := local.PostgreSQL(t, []string{"schema.sql"})
+
+	db, err := sql.Open("pgx", uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	q := New(db)
+	seedContacts(t, ctx, q)
+
+	assertNames := func(t *testing.T, rows []ExcludeContactsRow, want ...string) {
+		t.Helper()
+		got := map[string]bool{}
+		for _, r := range rows {
+			got[r.Name] = true
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %d rows %v, want %v", len(rows), got, want)
+		}
+		for _, w := range want {
+			if !got[w] {
+				t.Fatalf("missing %q in %v", w, got)
+			}
+		}
+	}
+
+	t.Run("no_filters_omits_the_negated_group", func(t *testing.T) {
+		got, err := q.ExcludeContacts(ctx, 1, ExcludeContactsOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "alice", "bob", "carol")
+	})
+
+	t.Run("negate_name", func(t *testing.T) {
+		got, err := q.ExcludeContacts(ctx, 1, ExcludeContactsOpts{}.Name("alice"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "bob", "carol")
+	})
+
+	t.Run("negate_status", func(t *testing.T) {
+		got, err := q.ExcludeContacts(ctx, 1, ExcludeContactsOpts{}.Status("active"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "bob")
+	})
+
+	t.Run("negated_disjunction_is_de_morgan", func(t *testing.T) {
+		// NOT (name = alice OR status = active) => name != alice AND status != active => bob.
+		got, err := q.ExcludeContacts(ctx, 1, ExcludeContactsOpts{}.Name("alice").Status("active"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNames(t, got, "bob")
+	})
+}
