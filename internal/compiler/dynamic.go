@@ -6,7 +6,48 @@ import (
 	"strings"
 
 	"github.com/sqlc-dev/sqlc/internal/metadata"
+	"github.com/sqlc-dev/sqlc/internal/sql/ast"
+	"github.com/sqlc-dev/sqlc/internal/sql/astutils"
 )
+
+func dynamicOperator(n *ast.A_Expr) (string, bool) {
+	if n == nil {
+		return "", false
+	}
+	switch n.Kind {
+	case ast.A_Expr_Kind_LIKE:
+		return "LIKE", true
+	case ast.A_Expr_Kind_ILIKE:
+		return "ILIKE", true
+	case ast.A_Expr_Kind_DISTINCT:
+		return "IS DISTINCT FROM", true
+	case ast.A_Expr_Kind_NOT_DISTINCT:
+		return "IS NOT DISTINCT FROM", true
+	case ast.A_Expr_Kind_OP:
+		return normalizeDynamicOperator(astutils.Join(n.Name, "."))
+	default:
+		return "", false
+	}
+}
+
+func normalizeDynamicOperator(op string) (string, bool) {
+	switch op {
+	case "=", "<", ">", "<=", ">=", "<>":
+		return op, true
+	case "!=":
+		return "<>", true
+	case "~~":
+		return "LIKE", true
+	case "!~~":
+		return "NOT LIKE", true
+	case "~~*":
+		return "ILIKE", true
+	case "!~~*":
+		return "NOT ILIKE", true
+	default:
+		return "", false
+	}
+}
 
 func buildDynamicCodegenSQL(sql string, params []Parameter, md metadata.Metadata) (string, error) {
 	if !md.Dynamic || len(md.DynamicParams) == 0 {

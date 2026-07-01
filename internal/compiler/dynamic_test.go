@@ -4,7 +4,88 @@ import (
 	"testing"
 
 	"github.com/sqlc-dev/sqlc/internal/metadata"
+	"github.com/sqlc-dev/sqlc/internal/sql/ast"
 )
+
+func TestNormalizeDynamicOperator(t *testing.T) {
+	tests := []struct {
+		op     string
+		want   string
+		wantOK bool
+	}{
+		// comparison operators pass through unchanged
+		{"=", "=", true},
+		{"<", "<", true},
+		{">", ">", true},
+		{"<=", "<=", true},
+		{">=", ">=", true},
+		{"<>", "<>", true},
+		// Postgres canonicalizes != to <>, accepted defensively
+		{"!=", "<>", true},
+		// LIKE-family operator spellings normalize to keywords
+		{"~~", "LIKE", true},
+		{"!~~", "NOT LIKE", true},
+		{"~~*", "ILIKE", true},
+		{"!~~*", "NOT ILIKE", true},
+		// unsupported / unknown tokens
+		{"@", "", false},
+		{"||", "", false},
+		{"", "", false},
+		{"@@", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.op, func(t *testing.T) {
+			got, ok := normalizeDynamicOperator(tt.op)
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("normalizeDynamicOperator(%q) = (%q, %v), want (%q, %v)",
+					tt.op, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+// opExpr builds an A_Expr of kind OP with the given operator token, e.g. ">=".
+func opExpr(op string) *ast.A_Expr {
+	return &ast.A_Expr{
+		Kind: ast.A_Expr_Kind_OP,
+		Name: &ast.List{Items: []ast.Node{&ast.String{Str: op}}},
+	}
+}
+
+func TestDynamicOperator(t *testing.T) {
+	tests := []struct {
+		name   string
+		expr   *ast.A_Expr
+		want   string
+		wantOK bool
+	}{
+		// LIKE / ILIKE / DISTINCT come from the Kind, not the operator token
+		{"like from kind", &ast.A_Expr{Kind: ast.A_Expr_Kind_LIKE}, "LIKE", true},
+		{"ilike from kind", &ast.A_Expr{Kind: ast.A_Expr_Kind_ILIKE}, "ILIKE", true},
+		{"is distinct from", &ast.A_Expr{Kind: ast.A_Expr_Kind_DISTINCT}, "IS DISTINCT FROM", true},
+		{"is not distinct from", &ast.A_Expr{Kind: ast.A_Expr_Kind_NOT_DISTINCT}, "IS NOT DISTINCT FROM", true},
+		// standard operators flow through the token map
+		{"eq from op token", opExpr("="), "=", true},
+		{"gte from op token", opExpr(">="), ">=", true},
+		{"tilde like from op token", opExpr("~~"), "LIKE", true},
+		{"unknown op token", opExpr("&&"), "", false},
+		// kinds we don't emit as a simple binary predicate
+		{"between unsupported", &ast.A_Expr{Kind: ast.A_Expr_Kind_BETWEEN}, "", false},
+		{"in unsupported (handled via slice)", &ast.A_Expr{Kind: ast.A_Expr_Kind_IN}, "", false},
+		{"nil expr", nil, "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := dynamicOperator(tt.expr)
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("dynamicOperator(%s) = (%q, %v), want (%q, %v)",
+					tt.name, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
 
 func param(number int, name string) Parameter {
 	return Parameter{Number: number, Column: &Column{Name: name}}
