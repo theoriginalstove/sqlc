@@ -29,6 +29,7 @@ type Column struct {
 	Length       *int
 	IsNamedParam bool
 	IsFuncCall   bool
+	IsDynamic    bool
 	DynamicOp    string
 
 	// XXX: Figure out what PostgreSQL calls `foo.id`

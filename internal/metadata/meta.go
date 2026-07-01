@@ -202,3 +202,19 @@ func ParseCommentFlags(comments []string) (map[string]string, map[string]bool, m
 
 	return params, flags, ruleSkiplist, dynamicParams, dynamicSort, nil
 }
+
+// StripDynamicComments removes the @dynamic and @dynamic-sort from directive
+// lines from the query's comments.
+func StripDynamicComments(comments []string) []string {
+	out := []string{}
+	for _, c := range comments {
+		if fields := strings.Fields(c); len(fields) > 0 {
+			switch fields[0] {
+			case constants.QueryFlagDynamic, constants.QueryFlagDynamicSort:
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return out
+}

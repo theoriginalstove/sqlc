@@ -1,8 +1,75 @@
 package metadata
 
 import (
+	"reflect"
 	"testing"
 )
+
+func TestStripDynamicComments(t *testing.T) {
+	tests := []struct {
+		name     string
+		comments []string
+		want     []string
+	}{
+		{
+			name: "strips @dynamic and @dynamic-sort, keeps doc line",
+			comments: []string{
+				" @dynamic name",
+				" @dynamic age",
+				" @dynamic-sort name, age, created_at",
+				" GetRecord returns one record",
+			},
+			want: []string{" GetRecord returns one record"},
+		},
+		{
+			name: "preserves unrelated @-flags and interleaved doc lines",
+			comments: []string{
+				" @param foo int",
+				" @dynamic name",
+				" a doc line",
+			},
+			want: []string{" @param foo int", " a doc line"},
+		},
+		{
+			name: "no dynamic directives passes through unchanged",
+			comments: []string{
+				" just a comment",
+				" @param x int",
+			},
+			want: []string{" just a comment", " @param x int"},
+		},
+		{
+			name: "bare @dynamic with no arg is still stripped",
+			comments: []string{
+				" @dynamic",
+				" doc",
+			},
+			want: []string{" doc"},
+		},
+		{
+			name: "all directives yields empty",
+			comments: []string{
+				" @dynamic name",
+				" @dynamic-sort id",
+			},
+			want: []string{},
+		},
+		{
+			name:     "empty input yields empty",
+			comments: nil,
+			want:     []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := StripDynamicComments(tt.comments)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("StripDynamicComments mismatch\n got: %#v\nwant: %#v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestParseQueryNameAndType(t *testing.T) {
 	for _, query := range []string{

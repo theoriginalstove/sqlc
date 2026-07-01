@@ -201,7 +201,7 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 			constantName = sdk.LowerTitle(query.Name)
 		}
 
-		ops, sortCols, comments := parseDynamicComments(query.Comments)
+		comments := metadata.StripDynamicComments(query.Comments)
 		if options.EmitSqlAsComment {
 			if len(comments) == 0 {
 				comments = append(comments, query.Name)
@@ -231,16 +231,12 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 
 		qpl := int(*options.QueryParameterLimit)
 
-		staticParams := query.Params
-		var dynamicParams []*plugin.Parameter
-		if len(ops) > 0 {
-			staticParams = nil
-			for _, p := range query.Params {
-				if _, ok := ops[p.Column.GetName()]; ok {
-					dynamicParams = append(dynamicParams, p)
-				} else {
-					staticParams = append(staticParams, p)
-				}
+		var staticParams, dynamicParams []*plugin.Parameter
+		for _, p := range query.Params {
+			if p.Column.GetIsDynamic() {
+				dynamicParams = append(dynamicParams, p)
+			} else {
+				staticParams = append(staticParams, p)
 			}
 		}
 
@@ -282,7 +278,7 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 			}
 		}
 
-		if len(dynamicParams) > 0 || len(sortCols) > 0 {
+		if len(dynamicParams) > 0 || len(query.GetDynamicOrderBy()) > 0 {
 			dq := &DynamicQuery{StaticCount: len(staticParams)}
 			for _, p := range dynamicParams {
 				isSlice := p.Column.GetIsSqlcSlice()
@@ -307,7 +303,7 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 					IsSlice:   isSlice,
 				})
 			}
-			for _, col := range sortCols {
+			for _, col := range query.GetDynamicOrderBy() {
 				dq.SortColumns = append(dq.SortColumns, DynamicSortColumn{
 					ConstName: gq.MethodName + "OrderBy" + StructName(col, options),
 					Value:     col,

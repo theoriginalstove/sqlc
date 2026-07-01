@@ -165,6 +165,7 @@ func pluginQueries(r *compiler.Result) []*plugin.Query {
 			Params:          params,
 			Filename:        q.Metadata.Filename,
 			InsertIntoTable: iit,
+			DynamicOrderBy:  q.Metadata.DynamicSort,
 		})
 	}
 	return out
@@ -187,6 +188,7 @@ func pluginQueryColumn(c *compiler.Column) *plugin.Column {
 		IsNamedParam: c.IsNamedParam,
 		IsFuncCall:   c.IsFuncCall,
 		IsSqlcSlice:  c.IsSqlcSlice,
+		IsDynamic:    c.IsDynamic,
 		DynamicOp:    c.DynamicOp,
 	}
 

@@ -159,6 +159,14 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		}
 	}
 
+	for i := range anlys.Parameters {
+		if c := anlys.Parameters[i].Column; c != nil {
+			if _, ok := md.DynamicParams[c.Name]; ok {
+				c.IsDynamic = true
+			}
+		}
+	}
+
 	expanded := anlys.Query
 
 	// If the query string was edited, make sure the syntax is valid
