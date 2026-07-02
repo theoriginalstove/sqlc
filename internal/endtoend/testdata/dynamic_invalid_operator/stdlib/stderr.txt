@@ -1,0 +1,2 @@
+# package querytest
+error generating code: dynamic param "pattern": could not infer a comparison operator from the query

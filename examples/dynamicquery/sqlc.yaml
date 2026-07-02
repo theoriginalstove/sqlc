@@ -1,0 +1,31 @@
+version: '2'
+sql:
+- engine: postgresql
+  schema: postgresql/schema.sql
+  queries: postgresql/query.sql
+  gen:
+    go:
+      package: dynamicquery
+      out: postgresql
+- engine: postgresql
+  schema: pgx/schema.sql
+  queries: pgx/query.sql
+  gen:
+    go:
+      package: dynamicquerypgx
+      sql_package: pgx/v5
+      out: pgx
+- engine: sqlite
+  schema: sqlite/schema.sql
+  queries: sqlite/query.sql
+  gen:
+    go:
+      package: dynamicquerysqlite
+      out: sqlite
+- engine: mysql
+  schema: mysql/schema.sql
+  queries: mysql/query.sql
+  gen:
+    go:
+      package: dynamicquerymysql
+      out: mysql

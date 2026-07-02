@@ -19,6 +19,133 @@ type {{.Ret.Type}} struct { {{- range .Ret.Struct.Fields}}
 }
 {{end}}
 
+{{if .Dynamic}}
+{{$q := .}}
+type {{$q.MethodName}}Opts struct {
+{{- range $q.Dynamic.Opts}}
+	{{- if .IsSlice}}
+	{{.VarName}} {{.GoType}}
+	{{- else}}
+	{{.VarName}} *{{.GoType}}
+	{{- end}}
+{{- end}}
+	orderBy []string
+}
+{{range $q.Dynamic.Opts}}
+func (o {{$q.MethodName}}Opts) {{.FieldName}}(v {{.GoType}}) {{$q.MethodName}}Opts {
+	o.{{.VarName}} = {{if .IsSlice}}v{{else}}&v{{end}}
+	return o
+}
+{{end -}}
+{{if $q.Dynamic.SortColumns}}
+type {{$q.MethodName}}OrderByColumn string
+
+const (
+{{- range $q.Dynamic.SortColumns}}
+	{{.ConstName}} {{$q.MethodName}}OrderByColumn = "{{.Value}}"
+{{- end}}
+)
+
+func (o {{$q.MethodName}}Opts) OrderBy(col {{$q.MethodName}}OrderByColumn, desc bool) {{$q.MethodName}}Opts {
+	dir := " ASC"
+	if desc {
+		dir = " DESC"
+	}
+	o.orderBy = append(o.orderBy, string(col)+dir)
+	return o
+}
+{{end -}}
+{{range $q.Comments}}//{{.}}
+{{end -}}
+func (q *Queries) {{$q.MethodName}}(ctx context.Context, {{$q.Arg.Pair}}{{if $q.Arg.Pair}}, {{end}}opts {{$q.MethodName}}Opts) ({{if eq $q.Cmd ":one"}}{{$q.Ret.DefineType}}{{else}}[]{{$q.Ret.DefineType}}{{end}}, error) {
+	query := {{$q.ConstantName}}
+	queryParams := []interface{}{ {{$q.Arg.Params}} }
+	conds := make([]string, 0, {{len $q.Dynamic.Opts}})
+	n := {{$q.Dynamic.StaticCount}}
+	_ = n
+{{- range $q.Dynamic.Steps}}
+	{{- if eq .Kind "open"}}
+	{{.SliceVar}} := make([]string, 0, {{.Cap}})
+	{{- else if eq .Kind "close"}}
+	switch len({{.SliceVar}}) {
+	case 0:
+	case 1:
+		{{.Target}} = append({{.Target}}, {{if .Not}}"NOT ("+{{.SliceVar}}[0]+")"{{else}}{{.SliceVar}}[0]{{end}})
+	default:
+		{{.Target}} = append({{.Target}}, {{if .Not}}"NOT "+{{end}}"("+strings.Join({{.SliceVar}}, " {{.Connector}} ")+")")
+	}
+	{{- else}}
+	{{- if .Predicate.IsSlice}}
+	if len(opts.{{.Predicate.VarName}}) > 0 {
+		ph := make([]string, len(opts.{{.Predicate.VarName}}))
+		for i, v := range opts.{{.Predicate.VarName}} {
+			{{- if $q.Dynamic.QuestionMark}}
+			ph[i] = "?"
+			{{- else}}
+			n++
+			ph[i] = fmt.Sprintf("$%d", n)
+			{{- end}}
+			queryParams = append(queryParams, v)
+		}
+		{{.Target}} = append({{.Target}}, "{{.Predicate.Column}} IN ("+strings.Join(ph, ", ")+")")
+	}
+	{{- else}}
+	if opts.{{.Predicate.VarName}} != nil {
+		{{- if $q.Dynamic.QuestionMark}}
+		{{.Target}} = append({{.Target}}, "{{.Predicate.Column}} {{.Predicate.SQLOp}} ?")
+		{{- else}}
+		n++
+		{{.Target}} = append({{.Target}}, fmt.Sprintf("{{.Predicate.Column}} {{.Predicate.SQLOp}} $%d", n))
+		{{- end}}
+		queryParams = append(queryParams, *opts.{{.Predicate.VarName}})
+	}
+	{{- end}}
+	{{- end}}
+{{- end}}
+	if len(conds) > 0 {
+		query += " {{if gt $q.Dynamic.StaticCount 0}}AND{{else}}WHERE{{end}} " + strings.Join(conds, " AND ")
+	}
+	if len(opts.orderBy) > 0 {
+		query += " ORDER BY " + strings.Join(opts.orderBy, ", ")
+	}
+{{- if eq $q.Cmd ":one"}}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var {{$q.Ret.Name}} {{$q.Ret.Type}}
+	err := row.Scan({{$q.Ret.Scan}})
+	{{- if $.WrapErrors}}
+	if err != nil {
+		err = fmt.Errorf("query {{$q.MethodName}}: %w", err)
+	}
+	{{- end}}
+	return {{$q.Ret.ReturnName}}, err
+{{- else}}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, {{if $.WrapErrors}}fmt.Errorf("query {{$q.MethodName}}: %w", err){{else}}err{{end}}
+	}
+	defer rows.Close()
+	{{- if $.EmitEmptySlices}}
+	items := []{{$q.Ret.DefineType}}{}
+	{{else}}
+	var items []{{$q.Ret.DefineType}}
+	{{end -}}
+	for rows.Next() {
+		var {{$q.Ret.Name}} {{$q.Ret.Type}}
+		if err := rows.Scan({{$q.Ret.Scan}}); err != nil {
+			return nil, {{if $.WrapErrors}}fmt.Errorf("query {{$q.MethodName}}: %w", err){{else}}err{{end}}
+		}
+		items = append(items, {{$q.Ret.ReturnName}})
+	}
+	if err := rows.Close(); err != nil {
+		return nil, {{if $.WrapErrors}}fmt.Errorf("query {{$q.MethodName}}: %w", err){{else}}err{{end}}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, {{if $.WrapErrors}}fmt.Errorf("query {{$q.MethodName}}: %w", err){{else}}err{{end}}
+	}
+	return items, nil
+{{- end}}
+}
+{{else}}
 {{if eq .Cmd ":one"}}
 {{range .Comments}}//{{.}}
 {{end -}}
@@ -118,6 +245,7 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}
     return result, err
     {{- end}}
 }
+{{end}}
 {{end}}
 
 {{end}}

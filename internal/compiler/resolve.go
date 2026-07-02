@@ -229,6 +229,7 @@ func (comp *Compiler) resolveCatalogRefs(qc *QueryCatalog, rvs []*ast.RangeVar, 
 							key = ref.name
 						}
 
+						op, _ := dynamicOperator(n)
 						defaultP := named.NewInferredParam(key, c.IsNotNull)
 						p, isNamed := params.FetchMerge(ref.ref.Number, defaultP)
 						a = append(a, Parameter{
@@ -245,6 +246,7 @@ func (comp *Compiler) resolveCatalogRefs(qc *QueryCatalog, rvs []*ast.RangeVar, 
 								Table:        table,
 								IsNamedParam: isNamed,
 								IsSqlcSlice:  p.IsSqlcSlice(),
+								DynamicOp:    op,
 							},
 						})
 					}

@@ -29,6 +29,8 @@ type Column struct {
 	Length       *int
 	IsNamedParam bool
 	IsFuncCall   bool
+	IsDynamic    bool
+	DynamicOp    string
 
 	// XXX: Figure out what PostgreSQL calls `foo.id`
 	Scope      string
@@ -43,10 +45,15 @@ type Column struct {
 }
 
 type Query struct {
-	SQL      string
-	Metadata metadata.Metadata
-	Columns  []*Column
-	Params   []Parameter
+	// CodegenSQL is the stripped base query emitted as the Go const for
+	// :dynamicmany and dynamicone queries (where/order by suffixes removed). This should be
+	// empty for normal queries.
+	CodegenSQL   string
+	DynamicWhere *DynamicNode
+	SQL          string
+	Metadata     metadata.Metadata
+	Columns      []*Column
+	Params       []Parameter
 
 	// Needed for CopyFrom
 	InsertIntoTable *ast.TableName

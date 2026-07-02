@@ -81,6 +81,12 @@ message Identifier {
   string name = 3;
 }
 
+message DynamicNode {
+  string connector = 1;
+  string param = 2;
+  repeated DynamicNode children = 3;
+}
+
 message Column {
   string name = 1;
   bool not_null = 3;
@@ -100,6 +106,8 @@ message Column {
   string original_name = 15;
   bool unsigned = 16;
   int32 array_dims = 17;
+  string dynamic_op = 18;
+  bool is_dynamic = 19;
 }
 
 message Query {
@@ -111,6 +119,8 @@ message Query {
   repeated string comments = 6 [json_name = "comments"];
   string filename = 7 [json_name = "filename"];
   Identifier insert_into_table = 8 [json_name = "insert_into_table"];
+  repeated string dynamic_order_by = 9;
+  DynamicNode dynamic_where = 10;
 }
 
 message Parameter {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sqlc-dev/sqlc/internal/config"
 	"github.com/sqlc-dev/sqlc/internal/debug"
 	"github.com/sqlc-dev/sqlc/internal/metadata"
 	"github.com/sqlc-dev/sqlc/internal/opts"
@@ -44,7 +45,7 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		return nil, errors.New("missing semicolon at end of file")
 	}
 
-	name, cmd, err := metadata.ParseQueryNameAndType(rawSQL, metadata.CommentSyntax(c.parser.CommentSyntax()))
+	name, cmd, dynamic, err := metadata.ParseQueryNameAndType(rawSQL, metadata.CommentSyntax(c.parser.CommentSyntax()))
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +59,9 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 	}
 
 	md := metadata.Metadata{
-		Name: name,
-		Cmd:  cmd,
+		Name:    name,
+		Cmd:     cmd,
+		Dynamic: dynamic,
 	}
 
 	// TODO eventually can use this for name and type/cmd parsing too
@@ -68,7 +70,7 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		return nil, err
 	}
 
-	md.Params, md.Flags, md.RuleSkiplist, err = metadata.ParseCommentFlags(cleanedComments)
+	md.Params, md.Flags, md.RuleSkiplist, md.DynamicParams, md.DynamicSort, err = metadata.ParseCommentFlags(cleanedComments)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +160,25 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		}
 	}
 
+	for i := range anlys.Parameters {
+		if c := anlys.Parameters[i].Column; c != nil {
+			if _, ok := md.DynamicParams[c.Name]; ok {
+				c.IsDynamic = true
+			}
+		}
+	}
+	var dynamicWhere *DynamicNode
+	if md.Dynamic {
+		sel, ok := raw.Stmt.(*ast.SelectStmt)
+		if !ok {
+			return nil, fmt.Errorf("dynamic query %q must be a SELECT", name)
+		}
+		dynamicWhere, err = buildDynamicTree(sel.WhereClause, anlys.Parameters, md)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	expanded := anlys.Query
 
 	// If the query string was edited, make sure the syntax is valid
@@ -174,12 +195,20 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 
 	md.Comments = comments
 
+	dollar := c.conf.Engine == config.EnginePostgreSQL
+	codegenSQL, err := buildDynamicCodegenSQL(trimmed, anlys.Parameters, md, dollar)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Query{
 		RawStmt:         raw,
 		Metadata:        md,
 		Params:          anlys.Parameters,
 		Columns:         anlys.Columns,
 		SQL:             trimmed,
+		CodegenSQL:      codegenSQL,
+		DynamicWhere:    dynamicWhere,
 		InsertIntoTable: anlys.Table,
 	}, nil
 }

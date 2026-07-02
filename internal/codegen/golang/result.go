@@ -201,7 +201,7 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 			constantName = sdk.LowerTitle(query.Name)
 		}
 
-		comments := query.Comments
+		comments := metadata.StripDynamicComments(query.Comments)
 		if options.EmitSqlAsComment {
 			if len(comments) == 0 {
 				comments = append(comments, query.Name)
@@ -231,7 +231,16 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 
 		qpl := int(*options.QueryParameterLimit)
 
-		if len(query.Params) == 1 && qpl != 0 {
+		var staticParams, dynamicParams []*plugin.Parameter
+		for _, p := range query.Params {
+			if p.Column.GetIsDynamic() {
+				dynamicParams = append(dynamicParams, p)
+			} else {
+				staticParams = append(staticParams, p)
+			}
+		}
+
+		if len(staticParams) == 1 && qpl != 0 {
 			p := query.Params[0]
 			gq.Arg = QueryValue{
 				Name:           escape(paramName(p)),
@@ -241,9 +250,9 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 				ModelQualifier: qualifier,
 				Column:         p.Column,
 			}
-		} else if len(query.Params) >= 1 {
+		} else if len(staticParams) >= 1 {
 			var cols []goColumn
-			for _, p := range query.Params {
+			for _, p := range staticParams {
 				cols = append(cols, goColumn{
 					id:     int(p.Number),
 					Column: p.Column,
@@ -264,15 +273,63 @@ func buildQueries(req *plugin.GenerateRequest, options *opts.Options, enums []En
 
 			// if query params is 2, and query params limit is 4 AND this is a copyfrom, we still want to emit the query's model
 			// otherwise we end up with a copyfrom using a struct without the struct definition
-			if len(query.Params) <= qpl && query.Cmd != ":copyfrom" {
+			if len(staticParams) <= qpl && query.Cmd != ":copyfrom" {
 				gq.Arg.Emit = false
 			}
+		}
+
+		if len(dynamicParams) > 0 || len(query.GetDynamicOrderBy()) > 0 {
+			dq := &DynamicQuery{
+				StaticCount:  len(staticParams),
+				QuestionMark: req.Settings.GetEngine() == "mysql" || req.Settings.GetEngine() == "sqlite",
+			}
+			preds := make(map[string]DynamicPredicate, len(dynamicParams))
+			for _, p := range dynamicParams {
+				isSlice := p.Column.GetIsSqlcSlice()
+				var sqlOp string
+				if !isSlice {
+					sqlOp = p.Column.GetDynamicOp()
+					if sqlOp == "" {
+						return nil, fmt.Errorf("dynamic param %q: could not infer a comparison operator from the query", p.Column.GetName())
+					}
+				}
+				field := StructName(p.Column.GetName(), options)
+				column := p.Column.GetName()
+				if p.Column.GetOriginalName() != "" {
+					column = p.Column.GetOriginalName()
+				}
+				pred := DynamicPredicate{
+					FieldName: StructName(p.Column.GetName(), options),
+					VarName:   sdk.LowerTitle(field),
+					GoType:    qualifyType(goType(req, options, p.Column), models, qualifier),
+					Column:    column,
+					SQLOp:     sqlOp,
+					IsSlice:   isSlice,
+				}
+				dq.Opts = append(dq.Opts, pred)
+				preds[p.Column.GetName()] = pred
+			}
+
+			if root := query.GetDynamicWhere(); root != nil {
+				var counter int
+				for _, child := range root.GetChildren() {
+					dq.Steps = append(dq.Steps, flattenDynamic(child, preds, "conds", &counter)...)
+				}
+			}
+
+			for _, col := range query.GetDynamicOrderBy() {
+				dq.SortColumns = append(dq.SortColumns, DynamicSortColumn{
+					ConstName: gq.MethodName + "OrderBy" + StructName(col, options),
+					Value:     col,
+				})
+			}
+			gq.Dynamic = dq
 		}
 
 		if len(query.Columns) == 1 && query.Columns[0].EmbedTable == nil {
 			c := query.Columns[0]
 			name := columnName(c, 0)
-			name = strings.Replace(name, "$", "_", -1)
+			name = strings.ReplaceAll(name, "$", "_")
 			retName := escape(name)
 			// For :one queries the scan destination lives in the same scope as
 			// the query parameters, so reusing a parameter's name would cause
